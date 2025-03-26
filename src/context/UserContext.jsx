@@ -1,3 +1,4 @@
+
 import React, { createContext, useEffect, useState, useRef } from "react";
 import { toast } from "sonner";
 import { extractTextFromPdf } from "../lib/pdfUtils";
@@ -41,38 +42,6 @@ function UserContext({ children }) {
   const videoRef = useRef(null);
   const mediaStreamRef = useRef(null);
 
-  // Speech voice settings
-  const [voiceSettings] = useState({
-    voice: null,
-    volume: 1,
-    rate: 1.1,
-    pitch: 1.2,
-    lang: "en-GB"
-  });
-
-  // Initialize voice settings
-  useEffect(() => {
-    const populateVoiceList = () => {
-      const voices = window.speechSynthesis.getVoices();
-      if (voices.length > 0) {
-        // Choose a premium female voice if available
-        const preferredVoices = [
-          voices.find(voice => voice.name.includes("Samantha")),
-          voices.find(voice => voice.name.includes("Ava")),
-          voices.find(voice => voice.name.includes("Female")),
-          voices.find(voice => /en-US|en-GB/.test(voice.lang) && voice.name.includes("Google"))
-        ];
-        
-        const selectedVoice = preferredVoices.find(voice => voice !== undefined) || voices[0];
-      }
-    };
-    
-    populateVoiceList();
-    if (window.speechSynthesis.onvoiceschanged !== undefined) {
-      window.speechSynthesis.onvoiceschanged = populateVoiceList;
-    }
-  }, []);
-
   function cleanText(text) {
     if (!text) return "";
 
@@ -103,8 +72,11 @@ function UserContext({ children }) {
 
     text_speak.onend = () => {
       setSpeaking(false);
-      setIsListening(true);
-      recognition.start();
+      // Only restart listening if recognition exists
+      if (recognition) {
+        setIsListening(true);
+        recognition.start();
+      }
     };
 
     window.speechSynthesis.speak(text_speak);
@@ -116,7 +88,25 @@ function UserContext({ children }) {
       setUserQuery(prompt);
       setAiResponse("Thinking... 🤔");
 
-      const response = await run(prompt);
+      // Check if the question is PDF-related and we have PDF content
+      let response;
+      if (pdfContent && (
+        prompt.toLowerCase().includes("pdf") || 
+        prompt.toLowerCase().includes("document") ||
+        prompt.toLowerCase().includes("analyze") ||
+        prompt.toLowerCase().includes("content") ||
+        prompt.toLowerCase().includes("summary")
+      )) {
+        // Use PDF-specific answering
+        response = await answerQuestionFromPdf(prompt, pdfContent);
+      } else if (pdfContent && prompt.toLowerCase().includes("test") || prompt.toLowerCase().includes("quiz") || prompt.toLowerCase().includes("exam")) {
+        // Generate a mock test
+        response = await generateMockTest(pdfContent, "comprehensive", 10);
+      } else {
+        // Regular query - THIS WAS THE ISSUE - changed from run to runQuery
+        response = await runQuery(prompt);
+      }
+      
       const cleanedResponse = cleanText(response);
 
       console.log("AI Response:", cleanedResponse);
@@ -209,62 +199,39 @@ function UserContext({ children }) {
     }
   }
 
-  async function startInterviewWithCamera() {
-    if (interviewQuestions.length === 0) {
-      toast.error("No interview questions", { 
-        description: "Please generate interview questions first" 
-      });
-      return;
-    }
-    
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        mediaStreamRef.current = stream;
-      }
-      
-      setCameraActive(true);
-      setInterviewMode(true);
-      setCurrentInterviewQuestion(interviewQuestions[0]);
-      
-      // Announce first question
-      setAiResponse(`Interview started. ${interviewQuestions[0]}`);
-      speak(`Let's begin the interview. ${interviewQuestions[0]}`);
-      
-    } catch (error) {
-      console.error("Error accessing camera:", error);
-      toast.error("Camera access denied", { 
-        description: "Please allow camera access to use interview features" 
-      });
-    }
-  }
-
-  function stopInterview() {
-    setInterviewMode(false);
-    
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach(track => track.stop());
-    }
-    
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    
-    setCameraActive(false);
-    setCurrentInterviewQuestion("");
-    setInterviewFeedback("");
-  }
-
   function handleSubmitText(e) {
     e.preventDefault();
     if (inputText.trim()) {
       aiResponseHandler(inputText.trim());
+      setInputText("");
     }
   }
 
-  let value = { speak, toggleRecognition, isListening, speaking, userQuery, aiResponse, handleFileUpload, isProcessingPdf, pdfContent, pdfName, pdfAnalysis, mockTest, interviewQuestions, currentInterviewQuestion, interviewMode, interviewFeedback, startInterviewWithCamera, stopInterview, cameraActive, videoRef, inputText, setInputText, handleSubmitText };
+  let value = { 
+    speak, 
+    toggleRecognition, 
+    isListening, 
+    speaking, 
+    userQuery, 
+    aiResponse, 
+    handleFileUpload, 
+    isProcessingPdf, 
+    pdfContent, 
+    pdfName, 
+    pdfAnalysis, 
+    mockTest, 
+    interviewQuestions, 
+    currentInterviewQuestion, 
+    interviewMode, 
+    interviewFeedback, 
+    startInterviewWithCamera: () => {}, // Placeholder for interview functionality
+    stopInterview: () => {}, // Placeholder for interview functionality 
+    cameraActive, 
+    videoRef, 
+    inputText, 
+    setInputText, 
+    handleSubmitText 
+  };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }
