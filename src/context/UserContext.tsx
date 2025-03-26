@@ -43,7 +43,7 @@ function UserContext({ children }: { children: React.ReactNode }) {
   // Speech & recognition states
   const [speaking, setSpeaking] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  const [recognition, setRecognition] = useState<any>(null);
+  const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
   
   // User interaction states
   const [userQuery, setUserQuery] = useState("");
@@ -67,38 +67,6 @@ function UserContext({ children }: { children: React.ReactNode }) {
   const [cameraActive, setCameraActive] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
-
-  // Speech voice settings
-  const [voiceSettings] = useState({
-    voice: null,
-    volume: 1,
-    rate: 1.1,
-    pitch: 1.2,
-    lang: "en-GB"
-  });
-
-  // Initialize voice settings
-  useEffect(() => {
-    const populateVoiceList = () => {
-      const voices = window.speechSynthesis.getVoices();
-      if (voices.length > 0) {
-        // Choose a premium female voice if available
-        const preferredVoices = [
-          voices.find(voice => voice.name.includes("Samantha")),
-          voices.find(voice => voice.name.includes("Ava")),
-          voices.find(voice => voice.name.includes("Female")),
-          voices.find(voice => /en-US|en-GB/.test(voice.lang) && voice.name.includes("Google"))
-        ];
-        
-        const selectedVoice = preferredVoices.find(voice => voice !== undefined) || voices[0];
-      }
-    };
-    
-    populateVoiceList();
-    if (window.speechSynthesis.onvoiceschanged !== undefined) {
-      window.speechSynthesis.onvoiceschanged = populateVoiceList;
-    }
-  }, []);
 
   function cleanText(text: string): string {
     if (!text) return "";
@@ -130,8 +98,11 @@ function UserContext({ children }: { children: React.ReactNode }) {
 
     text_speak.onend = () => {
       setSpeaking(false);
-      setIsListening(true);
-      recognition?.start();
+      // Only restart listening if we were previously listening
+      if (recognition) {
+        setIsListening(true);
+        recognition.start();
+      }
     };
 
     window.speechSynthesis.speak(text_speak);
@@ -143,7 +114,25 @@ function UserContext({ children }: { children: React.ReactNode }) {
       setUserQuery(prompt);
       setAiResponse("Thinking... 🤔");
 
-      const response = await runQuery(prompt);
+      // Check if the question is PDF-related and we have PDF content
+      let response;
+      if (pdfContent && (
+        prompt.toLowerCase().includes("pdf") || 
+        prompt.toLowerCase().includes("document") ||
+        prompt.toLowerCase().includes("analyze") ||
+        prompt.toLowerCase().includes("content") ||
+        prompt.toLowerCase().includes("summary")
+      )) {
+        // Use PDF-specific answering
+        response = await answerQuestionFromPdf(prompt, pdfContent);
+      } else if (pdfContent && prompt.toLowerCase().includes("test") || prompt.toLowerCase().includes("quiz") || prompt.toLowerCase().includes("exam")) {
+        // Generate a mock test
+        response = await generateMockTest(pdfContent, "comprehensive", 10);
+      } else {
+        // Regular query
+        response = await runQuery(prompt);
+      }
+      
       const cleanedResponse = cleanText(response);
 
       console.log("AI Response:", cleanedResponse);
@@ -170,7 +159,7 @@ function UserContext({ children }: { children: React.ReactNode }) {
         setIsListening(true);
       };
 
-      recog.onresult = async (event: any) => {
+      recog.onresult = async (event) => {
         let speechText = event.results[event.results.length - 1][0].transcript;
         console.log("Recognized Speech:", speechText);
         await aiResponseHandler(speechText);
