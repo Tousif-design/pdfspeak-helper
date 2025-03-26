@@ -18,7 +18,7 @@ const PDFViewer = () => {
   
   // Format and clean up PDF content for display
   const formatPdfText = (text) => {
-    if (!text) return "";
+    if (!text) return "No content available";
     
     return text
       .replace(/\n{3,}/g, "\n\n") // Replace excessive newlines
@@ -103,11 +103,11 @@ const PDFViewer = () => {
             {activeTab === "analysis" ? (
               <>
                 {pdfAnalysis ? (
-                  <div className="prose prose-lg max-w-none">
+                  <div className="prose prose-lg max-w-none whitespace-pre-line">
                     {formatPdfText(pdfAnalysis)}
                   </div>
                 ) : (
-                  <div className="flex items-center justify-center h-full">
+                  <div className="flex items-center justify-center h-64">
                     <div className="flex flex-col items-center text-center">
                       <Loader2 className="w-8 h-8 text-primary animate-spin mb-4" />
                       <p className="text-lg">Analyzing PDF content...</p>
@@ -142,7 +142,7 @@ const PDFViewer = () => {
                 )}
               </>
             ) : (
-              <div className="prose prose-lg max-w-none">
+              <div className="prose prose-lg max-w-none whitespace-pre-line">
                 {formatPdfText(pdfContent)}
               </div>
             )}

@@ -16,7 +16,6 @@ const defaultGenerationConfig = {
   topP: 0.95,
   topK: 40,
   maxOutputTokens: 4000,
-  responseMimeType: "text/plain",
 };
 
 /**
@@ -24,6 +23,7 @@ const defaultGenerationConfig = {
  */
 export async function runQuery(prompt: string, config = {}) {
   try {
+    console.log("Sending query to Gemini:", prompt.substring(0, 100) + "...");
     const generationConfig = { ...defaultGenerationConfig, ...config };
     
     const chatSession = model.startChat({
@@ -33,9 +33,11 @@ export async function runQuery(prompt: string, config = {}) {
 
     const result = await chatSession.sendMessage(prompt);
     const responseText = await result.response.text();
+    console.log("Response received from Gemini");
     return responseText;
   } catch (error) {
     console.error("AI Error:", error);
+    toast.error("AI service error", { description: "Failed to process your request" });
     throw new Error("AI service failed to process the request");
   }
 }
@@ -45,6 +47,15 @@ export async function runQuery(prompt: string, config = {}) {
  */
 export async function analyzePdfContent(pdfText: string): Promise<string> {
   try {
+    console.log("Analyzing PDF content, length:", pdfText.length);
+    if (!pdfText || pdfText.trim().length === 0) {
+      console.error("PDF text is empty");
+      throw new Error("PDF content is empty");
+    }
+
+    // Limit PDF text to prevent token limit issues
+    const truncatedText = pdfText.slice(0, 25000);
+    
     const prompt = `
       Analyze the following PDF content and provide:
       1. A concise 3-paragraph summary of the main topics
@@ -52,18 +63,18 @@ export async function analyzePdfContent(pdfText: string): Promise<string> {
       3. Any important terms or concepts mentioned
       
       PDF Content:
-      ${pdfText.slice(0, 50000)}
+      ${truncatedText}
     `;
     
     const response = await runQuery(prompt, {
       temperature: 0.2,
-      maxOutputTokens: 4000,
+      maxOutputTokens: 2000,
     });
     
     return response;
   } catch (error) {
     console.error("Error analyzing PDF:", error);
-    toast.error("Failed to analyze PDF content");
+    toast.error("PDF Analysis Error", { description: "Failed to analyze the PDF content" });
     throw new Error("PDF analysis failed");
   }
 }
@@ -73,12 +84,17 @@ export async function analyzePdfContent(pdfText: string): Promise<string> {
  */
 export async function answerQuestionFromPdf(question: string, pdfText: string): Promise<string> {
   try {
+    console.log("Answering question from PDF:", question);
+    
+    // Limit PDF text to prevent token limit issues
+    const truncatedText = pdfText.slice(0, 25000);
+    
     const prompt = `
       Use the following PDF content to answer the question. 
       If the answer is not in the content, say "I don't have enough information to answer that question based on the provided PDF."
       
       PDF Content:
-      ${pdfText.slice(0, 50000)}
+      ${truncatedText}
       
       Question: ${question}
     `;
@@ -91,7 +107,7 @@ export async function answerQuestionFromPdf(question: string, pdfText: string): 
     return response;
   } catch (error) {
     console.error("Error answering question:", error);
-    toast.error("Failed to process your question");
+    toast.error("Failed to answer", { description: "Unable to process your question" });
     throw new Error("Question answering failed");
   }
 }

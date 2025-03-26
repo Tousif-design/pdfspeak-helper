@@ -67,15 +67,30 @@ function UserContext({ children }) {
 
     text_speak.onstart = () => {
       setSpeaking(true);
-      setIsListening(false);
+      if (isListening && recognition) {
+        setIsListening(false);
+        recognition.stop();
+      }
     };
 
     text_speak.onend = () => {
       setSpeaking(false);
-      // Only restart listening if recognition exists
-      if (recognition) {
+      // Only restart listening if recognition exists and we were previously listening
+      if (recognition && !isListening) {
         setIsListening(true);
-        recognition.start();
+        try {
+          recognition.start();
+        } catch (error) {
+          console.error("Error restarting recognition:", error);
+          // If we get an error, try to reset the recognition
+          if (recognition) {
+            recognition.stop();
+            setTimeout(() => {
+              setIsListening(true);
+              recognition.start();
+            }, 300);
+          }
+        }
       }
     };
 
@@ -99,17 +114,19 @@ function UserContext({ children }) {
       )) {
         // Use PDF-specific answering
         response = await answerQuestionFromPdf(prompt, pdfContent);
-      } else if (pdfContent && prompt.toLowerCase().includes("test") || prompt.toLowerCase().includes("quiz") || prompt.toLowerCase().includes("exam")) {
+      } else if (pdfContent && (prompt.toLowerCase().includes("test") || 
+                               prompt.toLowerCase().includes("quiz") || 
+                               prompt.toLowerCase().includes("exam"))) {
         // Generate a mock test
         response = await generateMockTest(pdfContent, "comprehensive", 10);
       } else {
-        // Regular query - THIS WAS THE ISSUE - changed from run to runQuery
+        // Regular query
         response = await runQuery(prompt);
       }
       
       const cleanedResponse = cleanText(response);
 
-      console.log("AI Response:", cleanedResponse);
+      console.log("AI Response:", cleanedResponse.substring(0, 100) + "...");
       setAiResponse(cleanedResponse);
       speak(cleanedResponse);
     } catch (error) {
@@ -176,7 +193,11 @@ function UserContext({ children }) {
       
       // Extract text from PDF
       const text = await extractTextFromPdf(file);
+      console.log("PDF text extracted, length:", text.length);
       setPdfContent(text);
+      
+      // Show loading
+      setAiResponse("Analyzing your PDF...");
       
       // Analyze the PDF content
       const analysis = await analyzePdfContent(text);

@@ -7,10 +7,10 @@ import PDFViewer from "../components/PDFViewer";
 import MockTestGenerator from "../components/MockTestGenerator";
 import InterviewSimulator from "../components/InterviewSimulator";
 import ChatInput from "../components/ChatInput";
-import { FileText, BookOpen, Video, Bot } from "lucide-react";
+import { FileText, BookOpen, Video, Bot, Upload } from "lucide-react";
 
 const Index = () => {
-  const { userQuery, aiResponse, pdfContent } = useContext(DataContext);
+  const { userQuery, aiResponse, pdfContent, pdfName, handleFileUpload, isProcessingPdf } = useContext(DataContext);
   const [activeTab, setActiveTab] = useState("chat");
   
   // Tab configuration
@@ -94,7 +94,7 @@ const Index = () => {
                           <span className="text-xs text-muted-foreground">Just now</span>
                         </div>
                         <div className="prose prose-sm max-w-none">
-                          {aiResponse === "Thinking... 🤔" ? (
+                          {aiResponse === "Thinking... 🤔" || aiResponse === "Analyzing your PDF..." ? (
                             <div className="flex items-center gap-2">
                               <span>{aiResponse}</span>
                               <span className="inline-block w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></span>
@@ -102,7 +102,7 @@ const Index = () => {
                               <span className="inline-block w-1.5 h-1.5 bg-primary rounded-full animate-pulse delay-300"></span>
                             </div>
                           ) : (
-                            <p>{aiResponse}</p>
+                            <p className="whitespace-pre-line">{aiResponse}</p>
                           )}
                         </div>
                       </motion.div>
@@ -110,7 +110,7 @@ const Index = () => {
                   </div>
                 )}
                 
-                {/* Empty state */}
+                {/* Empty state or PDF upload */}
                 {!userQuery && !aiResponse && (
                   <div className="text-center py-12">
                     <motion.div
@@ -119,19 +119,50 @@ const Index = () => {
                       transition={{ duration: 0.5 }}
                       className="w-20 h-20 mx-auto bg-primary/5 rounded-full flex items-center justify-center mb-4"
                     >
-                      <Bot className="w-10 h-10 text-primary" />
+                      {pdfContent ? <FileText className="w-10 h-10 text-primary" /> : <Bot className="w-10 h-10 text-primary" />}
                     </motion.div>
-                    <h3 className="text-xl font-medium mb-2">How can I help you today?</h3>
-                    <p className="text-muted-foreground max-w-md mx-auto">
-                      Ask questions, upload a PDF for analysis, or try voice commands by clicking the microphone button.
-                    </p>
+                    
+                    {pdfContent ? (
+                      <>
+                        <h3 className="text-xl font-medium mb-2">PDF Uploaded: {pdfName}</h3>
+                        <p className="text-muted-foreground max-w-md mx-auto mb-4">
+                          Your PDF has been analyzed and is ready for questions. Try asking something specific about the content.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <h3 className="text-xl font-medium mb-2">How can I help you today?</h3>
+                        <p className="text-muted-foreground max-w-md mx-auto mb-4">
+                          Ask questions, upload a PDF for analysis, or try voice commands by clicking the microphone button.
+                        </p>
+                        
+                        <div className="mt-6 mb-6">
+                          <button 
+                            onClick={() => document.getElementById('pdf-upload')?.click()}
+                            disabled={isProcessingPdf}
+                            className="flex items-center gap-2 bg-primary text-white py-2 px-4 rounded-full mx-auto hover:bg-primary/90 transition-colors"
+                          >
+                            <Upload className="w-4 h-4" />
+                            <span>Upload PDF</span>
+                            <input 
+                              type="file" 
+                              id="pdf-upload" 
+                              accept="application/pdf" 
+                              onChange={handleFileUpload}
+                              disabled={isProcessingPdf}
+                              className="sr-only"
+                            />
+                          </button>
+                        </div>
+                      </>
+                    )}
                     
                     <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg mx-auto">
                       <div className="glass-card p-3 rounded-lg text-left hover:bg-white/90 transition-colors">
                         <h4 className="font-medium text-sm mb-1 text-primary">Example questions</h4>
                         <ul className="text-sm space-y-1.5">
-                          <li>"Explain [topic from PDF]"</li>
-                          <li>"What are the main points in this document?"</li>
+                          <li>"Explain the main concepts in this document"</li>
+                          <li>"Summarize the key points"</li>
                           <li>"Create a quiz based on this content"</li>
                         </ul>
                       </div>
