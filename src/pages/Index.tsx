@@ -6,6 +6,7 @@ import Hero from "../components/Hero";
 import PDFViewer from "../components/PDFViewer";
 import MockTestGenerator from "../components/MockTestGenerator";
 import InterviewSimulator from "../components/InterviewSimulator";
+import ChatInput from "../components/ChatInput";
 import { FileText, BookOpen, Video, Bot } from "lucide-react";
 
 const Index = () => {
@@ -56,6 +57,7 @@ const Index = () => {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3 }}
+            className="mb-20" // Add space for the input at bottom
           >
             {activeTab === "chat" && (
               <div className="max-w-4xl mx-auto">
@@ -153,6 +155,9 @@ const Index = () => {
             {activeTab === "interview" && <InterviewSimulator />}
           </motion.div>
         </AnimatePresence>
+        
+        {/* Chat input component */}
+        {activeTab === "chat" && <ChatInput />}
       </div>
     </main>
   );
