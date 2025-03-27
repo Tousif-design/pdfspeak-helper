@@ -29,7 +29,7 @@ const Index = () => {
       {/* Chat display */}
       <div className="container px-4 py-8">
         {/* Tab navigation */}
-        <div className="flex flex-wrap justify-center mb-8">
+        <div className="flex justify-center mb-8">
           <div className="glass-card flex rounded-full overflow-hidden p-1 shadow-md">
             {tabs.map((tab) => (
               <button
@@ -159,20 +159,20 @@ const Index = () => {
                     
                     <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg mx-auto">
                       <div className="glass-card p-3 rounded-lg text-left hover:bg-white/90 transition-colors">
-                        <h4 className="font-medium text-sm mb-1 text-primary">Example questions</h4>
+                        <h4 className="font-medium text-sm mb-1 text-primary">PDF Analysis</h4>
                         <ul className="text-sm space-y-1.5">
                           <li>"Explain the main concepts in this document"</li>
                           <li>"Summarize the key points"</li>
-                          <li>"Create a quiz based on this content"</li>
+                          <li>"What does this PDF tell us about [topic]?"</li>
                         </ul>
                       </div>
                       
                       <div className="glass-card p-3 rounded-lg text-left hover:bg-white/90 transition-colors">
-                        <h4 className="font-medium text-sm mb-1 text-primary">Voice commands</h4>
+                        <h4 className="font-medium text-sm mb-1 text-primary">Voice Commands</h4>
                         <ul className="text-sm space-y-1.5">
                           <li>"Generate a mock test"</li>
-                          <li>"Prepare interview questions"</li>
-                          <li>"Analyze the PDF content"</li>
+                          <li>"Tell me about [topic in the PDF]"</li>
+                          <li>"Stop" (to stop the AI from speaking)</li>
                         </ul>
                       </div>
                     </div>
@@ -187,7 +187,7 @@ const Index = () => {
           </motion.div>
         </AnimatePresence>
         
-        {/* Chat input component */}
+        {/* Chat input component - only show on chat tab */}
         {activeTab === "chat" && <ChatInput />}
       </div>
     </main>

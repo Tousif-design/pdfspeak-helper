@@ -1,6 +1,6 @@
 
 import React, { useContext, useState } from "react";
-import { Send, Mic, StopCircle, File } from "lucide-react";
+import { Send, Mic, StopCircle, File, Volume2, VolumeX } from "lucide-react";
 import { DataContext } from "../context/UserContext";
 import { motion } from "framer-motion";
 
@@ -9,6 +9,7 @@ const ChatInput = () => {
     toggleRecognition, 
     isListening, 
     speaking,
+    stopSpeaking,
     inputText,
     setInputText,
     handleSubmitText,
@@ -33,7 +34,6 @@ const ChatInput = () => {
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           className="flex-1 bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/70"
-          disabled={isListening || speaking}
         />
         
         <div className="flex items-center gap-1">
@@ -59,16 +59,28 @@ const ChatInput = () => {
           <button
             type="button"
             onClick={toggleRecognition}
-            disabled={speaking}
             className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-primary/10 text-primary transition-colors"
+            aria-label={isListening ? "Stop listening" : "Start listening"}
           >
             {isListening ? <StopCircle size={18} /> : <Mic size={18} />}
           </button>
           
+          {/* Stop Speaking button (only visible when speaking) */}
+          {speaking && (
+            <button
+              type="button"
+              onClick={stopSpeaking}
+              className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-red-100 text-red-500 transition-colors"
+              aria-label="Stop speaking"
+            >
+              <VolumeX size={18} />
+            </button>
+          )}
+          
           {/* Send button */}
           <button
             type="submit"
-            disabled={!inputText.trim() || isListening || speaking}
+            disabled={!inputText.trim()}
             className="w-10 h-10 flex items-center justify-center bg-primary text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors"
           >
             <Send size={16} />
@@ -76,17 +88,21 @@ const ChatInput = () => {
         </div>
       </form>
       
-      {/* Listening indicator */}
-      {isListening && (
-        <div className="text-xs text-center mt-2 text-primary animate-pulse">
-          Listening... Speak now
-        </div>
-      )}
-      
-      {/* Speaking indicator */}
-      {speaking && (
-        <div className="text-xs text-center mt-2 text-primary">
-          Speaking...
+      {/* Status indicator */}
+      {(isListening || speaking) && (
+        <div className="text-xs text-center mt-2 text-primary animate-pulse flex items-center justify-center gap-1">
+          {isListening && (
+            <>
+              <span className="inline-block w-2 h-2 bg-primary rounded-full animate-ping"></span>
+              <span>Listening... Speak now</span>
+            </>
+          )}
+          {speaking && (
+            <>
+              <Volume2 size={12} className="animate-pulse" />
+              <span>Speaking... (click <VolumeX size={10} className="inline mx-1" /> to stop)</span>
+            </>
+          )}
         </div>
       )}
     </motion.div>

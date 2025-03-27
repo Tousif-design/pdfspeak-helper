@@ -57,10 +57,12 @@ export async function analyzePdfContent(pdfText: string): Promise<string> {
     const truncatedText = pdfText.slice(0, 25000);
     
     const prompt = `
-      Analyze the following PDF content and provide:
+      Analyze the following PDF content and provide a structured response with:
       1. A concise 3-paragraph summary of the main topics
       2. 5 key insights or takeaways
       3. Any important terms or concepts mentioned
+      
+      Format your response clearly with headings. Be direct and informative.
       
       PDF Content:
       ${truncatedText}
@@ -71,6 +73,7 @@ export async function analyzePdfContent(pdfText: string): Promise<string> {
       maxOutputTokens: 2000,
     });
     
+    console.log("PDF analysis complete, response length:", response.length);
     return response;
   } catch (error) {
     console.error("Error analyzing PDF:", error);
@@ -90,20 +93,24 @@ export async function answerQuestionFromPdf(question: string, pdfText: string): 
     const truncatedText = pdfText.slice(0, 25000);
     
     const prompt = `
-      Use the following PDF content to answer the question. 
-      If the answer is not in the content, say "I don't have enough information to answer that question based on the provided PDF."
+      Using the following PDF content as context, answer this question thoroughly and directly:
       
       PDF Content:
       ${truncatedText}
       
       Question: ${question}
+      
+      If the answer isn't in the content, clearly state: "I don't have enough information to answer that question based on the provided PDF."
+      
+      Respond in a clear, informative manner without unnecessary text.
     `;
     
     const response = await runQuery(prompt, {
-      temperature: 0.2,
+      temperature: 0.3,
       maxOutputTokens: 2000,
     });
     
+    console.log("Question answered, response length:", response.length);
     return response;
   } catch (error) {
     console.error("Error answering question:", error);
@@ -117,6 +124,7 @@ export async function answerQuestionFromPdf(question: string, pdfText: string): 
  */
 export async function generateMockTest(pdfText: string, testType: string, numQuestions: number): Promise<string> {
   try {
+    console.log("Generating mock test, content length:", pdfText.length);
     const prompt = `
       Create a ${testType} mock test with ${numQuestions} questions based on the following content.
       Include a mix of multiple choice, short answer, and essay questions.

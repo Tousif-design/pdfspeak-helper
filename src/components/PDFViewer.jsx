@@ -2,7 +2,7 @@
 import React, { useContext, useState } from "react";
 import { motion } from "framer-motion";
 import { DataContext } from "../context/UserContext";
-import { FileText, Download, Loader2 } from "lucide-react";
+import { FileText, Download, Loader2, FileSearch, Book } from "lucide-react";
 import { generatePdf, downloadBlob } from "../lib/pdfUtils";
 
 const PDFViewer = () => {
@@ -10,7 +10,8 @@ const PDFViewer = () => {
     pdfContent, 
     pdfName, 
     pdfAnalysis, 
-    isProcessingPdf 
+    isProcessingPdf,
+    isPdfAnalyzed
   } = useContext(DataContext);
   
   const [downloading, setDownloading] = useState(false);
@@ -55,7 +56,7 @@ const PDFViewer = () => {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
-      className="w-full max-w-4xl mx-auto mt-8 glass-card rounded-xl overflow-hidden"
+      className="w-full max-w-4xl mx-auto glass-card rounded-xl overflow-hidden shadow-lg"
     >
       {pdfContent ? (
         <div className="flex flex-col h-full">
@@ -77,22 +78,24 @@ const PDFViewer = () => {
             <div className="flex rounded-lg overflow-hidden border border-border">
               <button
                 onClick={() => setActiveTab("analysis")}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                className={`px-4 py-2 text-sm font-medium transition-colors flex items-center gap-1.5 ${
                   activeTab === "analysis"
                     ? "bg-primary text-white"
                     : "bg-background hover:bg-secondary"
                 }`}
               >
+                <Book className="w-4 h-4" />
                 Analysis
               </button>
               <button
                 onClick={() => setActiveTab("content")}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                className={`px-4 py-2 text-sm font-medium transition-colors flex items-center gap-1.5 ${
                   activeTab === "content"
                     ? "bg-primary text-white"
                     : "bg-background hover:bg-secondary"
                 }`}
               >
+                <FileSearch className="w-4 h-4" />
                 Content
               </button>
             </div>
@@ -102,9 +105,30 @@ const PDFViewer = () => {
           <div className="flex-grow p-6 overflow-auto max-h-[500px]">
             {activeTab === "analysis" ? (
               <>
-                {pdfAnalysis ? (
-                  <div className="prose prose-lg max-w-none whitespace-pre-line">
+                {isPdfAnalyzed && pdfAnalysis ? (
+                  <div className="prose prose-lg max-w-none">
                     {formatPdfText(pdfAnalysis)}
+                    
+                    {/* Download analysis button */}
+                    <div className="mt-6 flex justify-end">
+                      <button
+                        onClick={handleDownloadAnalysis}
+                        disabled={downloading}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"
+                      >
+                        {downloading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Generating PDF...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Download className="w-4 h-4" />
+                            <span>Download Analysis</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex items-center justify-center h-64">
@@ -117,32 +141,9 @@ const PDFViewer = () => {
                     </div>
                   </div>
                 )}
-                
-                {/* Download analysis button */}
-                {pdfAnalysis && (
-                  <div className="mt-6 flex justify-end">
-                    <button
-                      onClick={handleDownloadAnalysis}
-                      disabled={downloading}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"
-                    >
-                      {downloading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Generating PDF...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Download className="w-4 h-4" />
-                          <span>Download Analysis</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                )}
               </>
             ) : (
-              <div className="prose prose-lg max-w-none whitespace-pre-line">
+              <div className="prose prose-lg max-w-none">
                 {formatPdfText(pdfContent)}
               </div>
             )}
@@ -164,6 +165,9 @@ const PDFViewer = () => {
               <h3 className="text-xl font-medium mb-2">No PDF Uploaded</h3>
               <p className="text-muted-foreground max-w-md">
                 Upload a PDF document to analyze its content, create mock tests, or practice with interview simulations.
+              </p>
+              <p className="text-sm text-muted-foreground mt-4">
+                Click the document icon in the chat input to upload a PDF
               </p>
             </>
           )}

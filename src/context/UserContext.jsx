@@ -29,6 +29,7 @@ function UserContext({ children }) {
   const [pdfName, setPdfName] = useState("");
   const [pdfAnalysis, setPdfAnalysis] = useState("");
   const [isProcessingPdf, setIsProcessingPdf] = useState(false);
+  const [isPdfAnalyzed, setIsPdfAnalyzed] = useState(false);
   
   // Test & Interview states
   const [mockTest, setMockTest] = useState("");
@@ -41,6 +42,14 @@ function UserContext({ children }) {
   const [cameraActive, setCameraActive] = useState(false);
   const videoRef = useRef(null);
   const mediaStreamRef = useRef(null);
+
+  // Function to manually stop speech
+  function stopSpeaking() {
+    if (speaking) {
+      window.speechSynthesis.cancel();
+      setSpeaking(false);
+    }
+  }
 
   function cleanText(text) {
     if (!text) return "";
@@ -58,6 +67,9 @@ function UserContext({ children }) {
   function speak(text) {
     if (!text) return;
 
+    // Stop any ongoing speech first
+    stopSpeaking();
+
     let cleanedText = cleanText(text);
     let text_speak = new SpeechSynthesisUtterance(cleanedText);
     text_speak.volume = 1;
@@ -68,8 +80,8 @@ function UserContext({ children }) {
     text_speak.onstart = () => {
       setSpeaking(true);
       if (isListening && recognition) {
-        setIsListening(false);
         recognition.stop();
+        setIsListening(false);
       }
     };
 
@@ -77,8 +89,8 @@ function UserContext({ children }) {
       setSpeaking(false);
       // Only restart listening if recognition exists and we were previously listening
       if (recognition && !isListening) {
-        setIsListening(true);
         try {
+          setIsListening(true);
           recognition.start();
         } catch (error) {
           console.error("Error restarting recognition:", error);
@@ -103,6 +115,15 @@ function UserContext({ children }) {
       setUserQuery(prompt);
       setAiResponse("Thinking... 🤔");
 
+      // Check for stop commands
+      if (prompt.toLowerCase().includes("stop") || 
+          prompt.toLowerCase().includes("cancel") ||
+          prompt.toLowerCase().includes("quiet")) {
+        stopSpeaking();
+        setAiResponse("I've stopped speaking as requested.");
+        return;
+      }
+
       // Check if the question is PDF-related and we have PDF content
       let response;
       if (pdfContent && (
@@ -110,17 +131,26 @@ function UserContext({ children }) {
         prompt.toLowerCase().includes("document") ||
         prompt.toLowerCase().includes("analyze") ||
         prompt.toLowerCase().includes("content") ||
-        prompt.toLowerCase().includes("summary")
+        prompt.toLowerCase().includes("summary") ||
+        prompt.toLowerCase().includes("about the") ||
+        prompt.toLowerCase().includes("what does the") ||
+        prompt.toLowerCase().includes("tell me about")
       )) {
         // Use PDF-specific answering
+        console.log("Using PDF-specific answering");
         response = await answerQuestionFromPdf(prompt, pdfContent);
-      } else if (pdfContent && (prompt.toLowerCase().includes("test") || 
-                               prompt.toLowerCase().includes("quiz") || 
-                               prompt.toLowerCase().includes("exam"))) {
+      } else if (pdfContent && (
+        prompt.toLowerCase().includes("test") || 
+        prompt.toLowerCase().includes("quiz") || 
+        prompt.toLowerCase().includes("exam")
+      )) {
         // Generate a mock test
+        console.log("Generating mock test");
         response = await generateMockTest(pdfContent, "comprehensive", 10);
+        setMockTest(response);
       } else {
         // Regular query
+        console.log("Using regular query");
         response = await runQuery(prompt);
       }
       
@@ -131,8 +161,9 @@ function UserContext({ children }) {
       speak(cleanedResponse);
     } catch (error) {
       console.error("Error in AI response:", error);
-      setAiResponse("Sorry, I couldn't understand that. Try again.");
-      speak("Sorry, I couldn't understand that. Try again.");
+      const errorMessage = "Sorry, I couldn't process your request. Please try again.";
+      setAiResponse(errorMessage);
+      speak(errorMessage);
     }
   }
 
@@ -189,6 +220,7 @@ function UserContext({ children }) {
 
     try {
       setIsProcessingPdf(true);
+      setIsPdfAnalyzed(false);
       setPdfName(file.name);
       
       // Extract text from PDF
@@ -201,11 +233,14 @@ function UserContext({ children }) {
       
       // Analyze the PDF content
       const analysis = await analyzePdfContent(text);
+      console.log("PDF analysis complete");
       setPdfAnalysis(analysis);
+      setIsPdfAnalyzed(true);
       
       // Provide feedback to user
-      setAiResponse(`I've analyzed "${file.name}". Would you like me to explain the content or do you have specific questions about it?`);
-      speak(`I've analyzed the PDF titled ${file.name}. Would you like me to explain the content or do you have specific questions about it?`);
+      const successMessage = `I've analyzed "${file.name}". Would you like me to explain the content or do you have specific questions about it?`;
+      setAiResponse(successMessage);
+      speak(successMessage);
       
       toast.success("PDF processed successfully", {
         description: `${file.name} has been analyzed and is ready for questions`
@@ -213,8 +248,9 @@ function UserContext({ children }) {
     } catch (error) {
       console.error("Error processing PDF:", error);
       toast.error("Failed to process PDF", { description: error.message });
-      setAiResponse("I encountered an error while processing your PDF. Please try again with a different file.");
-      speak("I encountered an error while processing your PDF. Please try again with a different file.");
+      const errorMessage = "I encountered an error while processing your PDF. Please try again with a different file.";
+      setAiResponse(errorMessage);
+      speak(errorMessage);
     } finally {
       setIsProcessingPdf(false);
     }
@@ -230,13 +266,15 @@ function UserContext({ children }) {
 
   let value = { 
     speak, 
+    stopSpeaking,
     toggleRecognition, 
     isListening, 
     speaking, 
     userQuery, 
     aiResponse, 
     handleFileUpload, 
-    isProcessingPdf, 
+    isProcessingPdf,
+    isPdfAnalyzed,
     pdfContent, 
     pdfName, 
     pdfAnalysis, 
