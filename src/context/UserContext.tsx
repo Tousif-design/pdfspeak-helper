@@ -1,4 +1,3 @@
-
 import React, { createContext, useEffect, useState, useRef } from "react";
 import { toast } from "sonner";
 import { extractTextFromPdf } from "../lib/pdfUtils";
@@ -165,13 +164,19 @@ function UserContext({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Extract PDF-related commands
-      const isPdfSummaryRequest = prompt.toLowerCase().includes("summarize") && 
-                                 (prompt.toLowerCase().includes("pdf") || 
-                                  prompt.toLowerCase().includes("document") ||
-                                  prompt.toLowerCase().includes("content"));
+      // Improved PDF-related command detection
+      const isPdfSummaryRequest = 
+        (prompt.toLowerCase().includes("summarize") || 
+         prompt.toLowerCase().includes("summary") ||
+         prompt.toLowerCase().includes("explain") ||
+         prompt.toLowerCase().includes("tell me about")) && 
+        (prompt.toLowerCase().includes("pdf") || 
+         prompt.toLowerCase().includes("document") ||
+         prompt.toLowerCase().includes("content") ||
+         prompt.toLowerCase().includes("file") ||
+         prompt.toLowerCase().includes("it"));
 
-      // Check if we have a PDF but user is asking for summary
+      // Check if we have a PDF but user is asking for content without PDF
       if (isPdfSummaryRequest && !pdfContent) {
         const noPdfMessage = "Please provide me with a PDF! I need the content of a PDF to summarize it for you.";
         setAiResponse(noPdfMessage);
@@ -181,52 +186,61 @@ function UserContext({ children }: { children: React.ReactNode }) {
 
       // Check if the question is PDF-related and we have PDF content
       let response;
-      if (pdfContent && (
-        prompt.toLowerCase().includes("pdf") || 
-        prompt.toLowerCase().includes("document") ||
-        prompt.toLowerCase().includes("analyze") ||
-        prompt.toLowerCase().includes("content") ||
-        prompt.toLowerCase().includes("summary") ||
-        prompt.toLowerCase().includes("about the") ||
-        prompt.toLowerCase().includes("what does the") ||
-        prompt.toLowerCase().includes("tell me about") ||
-        isPdfSummaryRequest
-      )) {
-        // Use PDF-specific answering
-        console.log("Using PDF-specific answering");
+      
+      // Enhanced PDF content detection - prioritize PDF analysis when PDF is available
+      if (pdfContent) {
+        // When PDF is available, assume most questions are about the PDF unless clearly not
+        const isPdfQuery = 
+          isPdfSummaryRequest || 
+          prompt.toLowerCase().includes("pdf") || 
+          prompt.toLowerCase().includes("document") ||
+          prompt.toLowerCase().includes("analyze") ||
+          prompt.toLowerCase().includes("content") ||
+          prompt.toLowerCase().includes("about the") ||
+          prompt.toLowerCase().includes("what does the") ||
+          prompt.toLowerCase().includes("tell me about") ||
+          !prompt.toLowerCase().includes("test") && 
+          !prompt.toLowerCase().includes("interview") &&
+          !prompt.toLowerCase().includes("quiz");
         
-        if (isPdfSummaryRequest) {
-          // If it's a summary request, use the analysis
-          if (pdfAnalysis) {
-            response = pdfAnalysis;
+        if (isPdfQuery) {
+          console.log("Using PDF-specific answering");
+          
+          if (isPdfSummaryRequest) {
+            // If it's a summary request, use the analysis
+            if (pdfAnalysis) {
+              response = pdfAnalysis;
+            } else {
+              // Generate analysis on demand
+              response = await analyzePdfContent(pdfContent);
+              setPdfAnalysis(response);
+            }
           } else {
-            // Generate analysis on demand
-            response = await analyzePdfContent(pdfContent);
-            setPdfAnalysis(response);
+            // Answer specific question about the PDF
+            response = await answerQuestionFromPdf(prompt, pdfContent);
+          }
+        } else if (prompt.toLowerCase().includes("test") || 
+                  prompt.toLowerCase().includes("quiz") || 
+                  prompt.toLowerCase().includes("exam")) {
+          // Generate a mock test
+          console.log("Generating mock test");
+          response = await generateMockTest(pdfContent, "comprehensive", 10);
+          setMockTest(response);
+          
+          // Extract answers for scoring
+          const answerSection = response.match(/ANSWERS[\s\S]*$/i);
+          if (answerSection) {
+            const answers = answerSection[0].match(/\d+\.\s*([A-D]|.+)/g) || [];
+            setMockTestAnswers(answers.map(a => a.trim()));
           }
         } else {
-          // Answer specific question
-          response = await answerQuestionFromPdf(prompt, pdfContent);
-        }
-      } else if (pdfContent && (
-        prompt.toLowerCase().includes("test") || 
-        prompt.toLowerCase().includes("quiz") || 
-        prompt.toLowerCase().includes("exam")
-      )) {
-        // Generate a mock test
-        console.log("Generating mock test");
-        response = await generateMockTest(pdfContent, "comprehensive", 10);
-        setMockTest(response);
-        
-        // Extract answers for scoring
-        const answerSection = response.match(/ANSWERS[\s\S]*$/i);
-        if (answerSection) {
-          const answers = answerSection[0].match(/\d+\.\s*([A-D]|.+)/g) || [];
-          setMockTestAnswers(answers.map(a => a.trim()));
+          // Regular query
+          console.log("Using regular query");
+          response = await runQuery(prompt);
         }
       } else {
-        // Regular query
-        console.log("Using regular query");
+        // No PDF available, use regular query
+        console.log("No PDF available, using regular query");
         response = await runQuery(prompt);
       }
       

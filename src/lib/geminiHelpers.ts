@@ -60,7 +60,8 @@ export async function analyzePdfContent(pdfText: string): Promise<string> {
       Analyze the following PDF content and provide a structured response with:
       1. A concise 3-paragraph summary of the main topics
       2. 5 key insights or takeaways
-      3. Any important terms or concepts mentioned
+      3. Any important terms or concepts mentioned with brief definitions
+      4. Potential questions someone might have about this content
       
       Format your response clearly with headings. Be direct and informative.
       
@@ -70,7 +71,7 @@ export async function analyzePdfContent(pdfText: string): Promise<string> {
     
     const response = await runQuery(prompt, {
       temperature: 0.2,
-      maxOutputTokens: 2000,
+      maxOutputTokens: 3000,
     });
     
     console.log("PDF analysis complete, response length:", response.length);
@@ -102,7 +103,8 @@ export async function answerQuestionFromPdf(question: string, pdfText: string): 
       
       If the answer isn't in the content, clearly state: "I don't have enough information to answer that question based on the provided PDF."
       
-      Respond in a clear, informative manner without unnecessary text.
+      Respond in a clear, informative manner with examples from the PDF where relevant.
+      Be helpful and provide a complete answer based on the context.
     `;
     
     const response = await runQuery(prompt, {
@@ -127,8 +129,16 @@ export async function generateMockTest(pdfText: string, testType: string, numQue
     console.log("Generating mock test, content length:", pdfText.length);
     const prompt = `
       Create a ${testType} mock test with ${numQuestions} questions based on the following content.
-      Include a mix of multiple choice, short answer, and essay questions.
-      Format it beautifully with clear instructions, sections, and an answer key at the end.
+      Include mostly multiple choice questions with options labeled A, B, C, D and a few short answer questions.
+      
+      Format the test as follows:
+      1. Start with a clear title
+      2. Include clear instructions
+      3. Number each question
+      4. For multiple choice, format as "A. option", "B. option", etc.
+      5. End with an ANSWERS section that lists just the correct answers (letter for multiple choice, short text for others)
+      
+      Make the test comprehensive and challenging, but fair based on the provided content.
       
       Content:
       ${pdfText.slice(0, 50000)}
@@ -155,6 +165,13 @@ export async function prepareInterviewQuestions(pdfText: string, interviewType: 
     const prompt = `
       Create 10 challenging ${interviewType} interview questions based on the following content.
       Focus on testing deep understanding and application of concepts.
+      Questions should be comprehensive and require detailed answers.
+      
+      For each question:
+      - Make it open-ended and thoughtful
+      - Ensure it tests real comprehension of the material
+      - Frame it as if being asked in a professional interview setting
+      
       Return ONLY the questions as a numbered list without additional text.
       
       Content:
@@ -187,7 +204,6 @@ export async function evaluateInterviewResponse(question: string, response: stri
   try {
     const prompt = `
       Evaluate the following interview response based on the provided content.
-      Provide constructive feedback and a score from 1-5 stars.
       
       Context from PDF:
       ${pdfText.slice(0, 20000)}
@@ -196,7 +212,13 @@ export async function evaluateInterviewResponse(question: string, response: stri
       
       Response: ${response}
       
-      Evaluation:
+      Provide a thorough evaluation that includes:
+      1. Overall quality of the answer (excellent, good, average, poor)
+      2. Key strengths of the response
+      3. Areas for improvement or missed points
+      4. Suggestions for a better answer
+      
+      End with a score from 1-5 stars. Be fair but constructive.
     `;
     
     const aiEvaluation = await runQuery(prompt, {

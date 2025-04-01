@@ -1,8 +1,8 @@
 
-import React, { useContext, useState, useRef } from "react";
+import React, { useContext, useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import { DataContext } from "../context/UserContext";
-import { Video, VideoOff, Mic, MicOff, Settings, Play, Loader2, Star, Send, StopCircle } from "lucide-react";
+import { Video, VideoOff, Mic, MicOff, Settings, Play, Loader2, Star, Send, StopCircle, Calendar, Clock, User, Award } from "lucide-react";
 import { prepareInterviewQuestions } from "../lib/geminiHelpers";
 import { toast } from "sonner";
 
@@ -19,20 +19,72 @@ const InterviewSimulator = () => {
     stopInterview,
     answerInterviewQuestion,
     videoRef,
-    cameraActive
+    cameraActive,
+    speak
   } = useContext(DataContext);
   
   const [generating, setGenerating] = useState(false);
   const [interviewSettings, setInterviewSettings] = useState({
     type: "technical",
     camera: true,
-    voice: true
+    voice: true,
+    duration: 15 // minutes
   });
   const [userResponse, setUserResponse] = useState("");
   const [isAnswering, setIsAnswering] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [scheduledDate, setScheduledDate] = useState(null);
+  const [countdown, setCountdown] = useState(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const timerRef = useRef(null);
+  
+  // Schedule interview for immediate start or later
+  const scheduleInterview = (scheduleForLater = false) => {
+    if (scheduleForLater) {
+      // Schedule for 10 minutes from now for demo purposes
+      const date = new Date();
+      date.setMinutes(date.getMinutes() + 10);
+      setScheduledDate(date);
+      
+      // Set countdown
+      const countdownMs = 10 * 60 * 1000;
+      setCountdown(countdownMs);
+      
+      toast.success("Interview scheduled", {
+        description: `Your interview will start in 10 minutes at ${date.toLocaleTimeString()}`
+      });
+    } else {
+      // Start immediately
+      startInterviewWithCamera();
+    }
+  };
+  
+  // Update countdown timer
+  useEffect(() => {
+    if (countdown === null) return;
+    
+    timerRef.current = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1000) {
+          clearInterval(timerRef.current);
+          startInterviewWithCamera();
+          return null;
+        }
+        return prev - 1000;
+      });
+    }, 1000);
+    
+    return () => clearInterval(timerRef.current);
+  }, [countdown]);
+  
+  // Format countdown time
+  const formatCountdown = (ms) => {
+    if (!ms) return "";
+    const minutes = Math.floor(ms / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
   
   // Generate interview questions
   const handleGenerateQuestions = async () => {
@@ -43,8 +95,10 @@ const InterviewSimulator = () => {
     
     try {
       setGenerating(true);
-      await prepareInterviewQuestions(pdfContent, interviewSettings.type);
-      toast.success("Interview questions prepared");
+      const questions = await prepareInterviewQuestions(pdfContent, interviewSettings.type);
+      toast.success("Interview questions prepared", {
+        description: "Ready to schedule your interview session"
+      });
     } catch (error) {
       console.error("Error generating questions:", error);
       toast.error("Failed to prepare questions", { description: error.message });
@@ -117,6 +171,13 @@ const InterviewSimulator = () => {
     // Submit answer for evaluation
     await answerInterviewQuestion(userResponse);
     setUserResponse("");
+    
+    // Speak next question after a short delay
+    if (currentQuestionIndex < interviewQuestions.length - 1) {
+      setTimeout(() => {
+        speak(interviewQuestions[currentQuestionIndex + 1]);
+      }, 3000);
+    }
   };
   
   // Render stars for score
@@ -167,19 +228,88 @@ const InterviewSimulator = () => {
               <VideoOff className="w-4 h-4" />
               <span>End Interview</span>
             </button>
+          ) : countdown ? (
+            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-100 text-amber-800">
+              <Clock className="w-4 h-4" />
+              <span>Starting in: {formatCountdown(countdown)}</span>
+            </div>
           ) : interviewQuestions.length > 0 && (
-            <button
-              onClick={startInterviewWithCamera}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"
-            >
-              <Play className="w-4 h-4" />
-              <span>Start Interview</span>
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => scheduleInterview(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary text-white hover:bg-secondary/90 transition-colors"
+              >
+                <Calendar className="w-4 h-4" />
+                <span>Schedule</span>
+              </button>
+              <button
+                onClick={() => scheduleInterview(false)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"
+              >
+                <Play className="w-4 h-4" />
+                <span>Start Now</span>
+              </button>
+            </div>
           )}
         </div>
         
         {/* Content */}
         <div className="p-6">
+          {/* Scheduled interview countdown */}
+          {countdown && !interviewMode && (
+            <div className="mb-6 glass-card rounded-lg p-4 bg-amber-50 border border-amber-200">
+              <div className="flex items-center gap-3 mb-3">
+                <Calendar className="w-5 h-5 text-amber-600" />
+                <h4 className="font-medium">Interview Scheduled</h4>
+              </div>
+              
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-4">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-amber-600" />
+                  <span className="text-sm">
+                    Starting at: {scheduledDate?.toLocaleTimeString()}
+                  </span>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  <User className="w-4 h-4 text-amber-600" />
+                  <span className="text-sm">
+                    Interview type: {interviewSettings.type.charAt(0).toUpperCase() + interviewSettings.type.slice(1)}
+                  </span>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-amber-600" />
+                  <span className="text-sm">
+                    Duration: {interviewSettings.duration} minutes
+                  </span>
+                </div>
+              </div>
+              
+              <div className="text-center py-4">
+                <div className="text-4xl font-bold text-amber-700 mb-2">
+                  {formatCountdown(countdown)}
+                </div>
+                <p className="text-sm text-amber-600">
+                  Your interview will start automatically. Please be ready with your camera and microphone.
+                </p>
+              </div>
+              
+              <div className="flex justify-end">
+                <button
+                  onClick={() => {
+                    clearInterval(timerRef.current);
+                    setCountdown(null);
+                    setScheduledDate(null);
+                  }}
+                  className="text-sm text-amber-700 hover:text-amber-900"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          
           {interviewMode ? (
             <div className="space-y-6">
               {/* Interview progress */}
@@ -285,8 +415,22 @@ const InterviewSimulator = () => {
                         </button>
                       ) : interviewScore && (
                         <div className="mt-4 p-3 bg-primary/10 rounded-md">
-                          <h4 className="font-medium mb-1">Interview Complete</h4>
-                          <p>You've completed the interview with an overall score of {interviewScore}%.</p>
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="font-medium text-primary flex items-center gap-1.5">
+                              <Award className="w-4 h-4" />
+                              Interview Complete
+                            </h4>
+                            <span className="text-sm font-medium">{interviewScore}%</span>
+                          </div>
+                          <p className="text-sm">
+                            You've completed the interview. Review your feedback above or end the interview to return to the main view.
+                          </p>
+                          <button
+                            onClick={stopInterview}
+                            className="mt-3 w-full py-2 rounded-md bg-primary text-white flex items-center justify-center gap-2"
+                          >
+                            <span>Finish & Exit</span>
+                          </button>
                         </div>
                       )}
                     </div>
@@ -297,7 +441,7 @@ const InterviewSimulator = () => {
           ) : (
             <>
               {/* Interview settings */}
-              {interviewQuestions.length === 0 && (
+              {interviewQuestions.length === 0 && !countdown && (
                 <div className="mb-6 glass-card rounded-lg p-4 bg-white/50">
                   <div className="flex items-center gap-2 mb-3">
                     <Settings className="w-5 h-5 text-primary" />
@@ -380,6 +524,21 @@ const InterviewSimulator = () => {
                         </button>
                       </div>
                     </div>
+                    
+                    {/* Interview duration */}
+                    <div>
+                      <label className="block text-sm mb-1.5">Duration (minutes)</label>
+                      <select 
+                        value={interviewSettings.duration}
+                        onChange={(e) => setInterviewSettings({ ...interviewSettings, duration: parseInt(e.target.value) })}
+                        className="glass-input w-full rounded-md px-3 py-1.5 text-sm"
+                      >
+                        <option value="10">10 minutes</option>
+                        <option value="15">15 minutes</option>
+                        <option value="30">30 minutes</option>
+                        <option value="45">45 minutes</option>
+                      </select>
+                    </div>
                   </div>
                   
                   <div className="mt-4 flex justify-end">
@@ -402,7 +561,7 @@ const InterviewSimulator = () => {
               )}
               
               {/* Questions list */}
-              {interviewQuestions.length > 0 ? (
+              {interviewQuestions.length > 0 && !countdown ? (
                 <div className="glass-card rounded-lg p-4 bg-white/70">
                   <h4 className="font-medium mb-4">Interview Questions</h4>
                   <ul className="space-y-3">
@@ -419,22 +578,30 @@ const InterviewSimulator = () => {
                   <div className="mt-6 bg-primary/5 rounded-lg p-4 border border-primary/10">
                     <h5 className="text-sm font-medium text-primary mb-2">Interview Instructions</h5>
                     <p className="text-sm">
-                      Click "Start Interview" to begin. The AI will ask each question and evaluate your responses.
+                      Click "Start Now" to begin immediately, or "Schedule" to set up an interview time.
+                      The AI will ask each question verbally and evaluate your responses.
                       Make sure your camera and microphone are enabled for the best experience.
                     </p>
                     
-                    <div className="mt-3 flex justify-center">
+                    <div className="mt-4 flex justify-center gap-3">
                       <button
-                        onClick={startInterviewWithCamera}
+                        onClick={() => scheduleInterview(true)}
+                        className="px-4 py-2 bg-secondary text-white rounded-lg hover:bg-secondary/90 transition-colors flex items-center gap-2"
+                      >
+                        <Calendar className="w-4 h-4" />
+                        <span>Schedule</span>
+                      </button>
+                      <button
+                        onClick={() => scheduleInterview(false)}
                         className="px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2"
                       >
                         <Play className="w-4 h-4" />
-                        <span>Start Interview</span>
+                        <span>Start Now</span>
                       </button>
                     </div>
                   </div>
                 </div>
-              ) : (
+              ) : interviewQuestions.length === 0 && !countdown && (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   {generating ? (
                     <>

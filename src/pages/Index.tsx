@@ -7,10 +7,20 @@ import PDFViewer from "../components/PDFViewer";
 import MockTestGenerator from "../components/MockTestGenerator";
 import InterviewSimulator from "../components/InterviewSimulator";
 import ChatInput from "../components/ChatInput";
-import { FileText, BookOpen, Video, Bot, Upload } from "lucide-react";
+import { FileText, BookOpen, Video, Bot, Upload, AlertCircle } from "lucide-react";
 
 const Index = () => {
-  const { userQuery, aiResponse, pdfContent, pdfName, handleFileUpload, isProcessingPdf } = useContext(DataContext);
+  const { 
+    userQuery, 
+    aiResponse, 
+    pdfContent, 
+    pdfName, 
+    handleFileUpload, 
+    isProcessingPdf, 
+    mockTest,
+    isPdfAnalyzed
+  } = useContext(DataContext);
+  
   const [activeTab, setActiveTab] = useState("chat");
   
   // Tab configuration
@@ -20,7 +30,17 @@ const Index = () => {
     { id: "test", label: "Mock Tests", icon: <BookOpen className="w-4 h-4" />, disabled: !pdfContent },
     { id: "interview", label: "Interview", icon: <Video className="w-4 h-4" />, disabled: !pdfContent }
   ];
+
+  // Improved notification for PDF content
+  const showPdfNotification = activeTab !== "chat" && !pdfContent;
   
+  // Auto-switch to test tab when test is generated
+  React.useEffect(() => {
+    if (mockTest && activeTab === "chat") {
+      setActiveTab("test");
+    }
+  }, [mockTest]);
+
   return (
     <main className="min-h-screen flex flex-col bg-gradient-to-b from-background via-background to-secondary/20">
       {/* Hero section */}
@@ -48,6 +68,27 @@ const Index = () => {
             ))}
           </div>
         </div>
+        
+        {/* PDF notification */}
+        {showPdfNotification && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-lg mx-auto mb-8 p-4 bg-amber-50 text-amber-800 rounded-lg flex items-center gap-3 shadow-sm"
+          >
+            <AlertCircle className="w-5 h-5 text-amber-600" />
+            <p className="text-sm">Please upload a PDF document first to use this feature.</p>
+            <button 
+              onClick={() => {
+                setActiveTab("chat");
+                document.getElementById('pdf-upload')?.click();
+              }}
+              className="ml-auto text-xs bg-amber-100 px-3 py-1 rounded hover:bg-amber-200 transition-colors"
+            >
+              Upload PDF
+            </button>
+          </motion.div>
+        )}
         
         {/* Tab content */}
         <AnimatePresence mode="wait">
@@ -126,8 +167,28 @@ const Index = () => {
                       <>
                         <h3 className="text-xl font-medium mb-2">PDF Uploaded: {pdfName}</h3>
                         <p className="text-muted-foreground max-w-md mx-auto mb-4">
-                          Your PDF has been analyzed and is ready for questions. Try asking something specific about the content.
+                          {isPdfAnalyzed 
+                            ? "Your PDF has been analyzed and is ready for questions. Try asking something specific about the content."
+                            : "Your PDF is being analyzed. Please wait a moment before asking questions."}
                         </p>
+                        
+                        <div className="flex justify-center gap-3 mt-4">
+                          <button
+                            onClick={() => setActiveTab("pdf")}
+                            className="flex items-center gap-2 bg-primary/10 text-primary py-2 px-4 rounded-full hover:bg-primary/20 transition-colors"
+                          >
+                            <FileText className="w-4 h-4" />
+                            <span>View PDF Analysis</span>
+                          </button>
+                          
+                          <button
+                            onClick={() => setActiveTab("test")}
+                            className="flex items-center gap-2 bg-primary/10 text-primary py-2 px-4 rounded-full hover:bg-primary/20 transition-colors"
+                          >
+                            <BookOpen className="w-4 h-4" />
+                            <span>Generate Mock Test</span>
+                          </button>
+                        </div>
                       </>
                     ) : (
                       <>
