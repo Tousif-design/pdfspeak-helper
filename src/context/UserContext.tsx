@@ -1,3 +1,4 @@
+
 import React, { createContext, useEffect, useState, useRef } from "react";
 import { toast } from "sonner";
 import { extractTextFromPdf } from "../lib/pdfUtils";
@@ -7,6 +8,7 @@ import {
   generateMockTest,
   prepareInterviewQuestions,
   evaluateInterviewResponse,
+  getNextInterviewQuestion,
   runQuery
 } from "../lib/geminiHelpers";
 
@@ -107,7 +109,7 @@ function UserContext({ children }: { children: React.ReactNode }) {
   function speak(text: string): void {
     if (!text) return;
 
-    // Stop any ongoing speech first
+    // First ensure any ongoing speech is stopped
     stopSpeaking();
 
     let cleanedText = cleanText(text);
@@ -116,6 +118,53 @@ function UserContext({ children }: { children: React.ReactNode }) {
     text_speak.rate = 1.1;
     text_speak.pitch = 1.2;
     text_speak.lang = "en-GB";
+
+    // Prevent long texts from getting cut off
+    if (cleanedText.length > 1000) {
+      // Split into sentences and speak in chunks
+      const sentences = cleanedText.match(/[^.!?]+[.!?]+/g) || [];
+      let i = 0;
+      
+      const speakNextChunk = () => {
+        if (i < sentences.length) {
+          const chunk = sentences.slice(i, i + 5).join(" ");
+          const chunkUtterance = new SpeechSynthesisUtterance(chunk);
+          chunkUtterance.volume = 1;
+          chunkUtterance.rate = 1.1;
+          chunkUtterance.pitch = 1.2;
+          chunkUtterance.lang = "en-GB";
+          
+          chunkUtterance.onstart = () => {
+            setSpeaking(true);
+            if (isListening && recognition) {
+              recognition.stop();
+              setIsListening(false);
+            }
+          };
+          
+          chunkUtterance.onend = () => {
+            i += 5;
+            speakNextChunk();
+          };
+          
+          window.speechSynthesis.speak(chunkUtterance);
+        } else {
+          setSpeaking(false);
+          // Resume listening if it was active before
+          if (recognition && !isListening) {
+            try {
+              setIsListening(true);
+              recognition.start();
+            } catch (error) {
+              console.error("Error restarting recognition:", error);
+            }
+          }
+        }
+      };
+      
+      speakNextChunk();
+      return;
+    }
 
     text_speak.onstart = () => {
       setSpeaking(true);
@@ -158,7 +207,8 @@ function UserContext({ children }: { children: React.ReactNode }) {
       // Check for stop commands
       if (prompt.toLowerCase().includes("stop") || 
           prompt.toLowerCase().includes("cancel") ||
-          prompt.toLowerCase().includes("quiet")) {
+          prompt.toLowerCase().includes("quiet") ||
+          prompt.toLowerCase().includes("shut up")) {
         stopSpeaking();
         setAiResponse("I've stopped speaking as requested.");
         return;
@@ -199,6 +249,10 @@ function UserContext({ children }: { children: React.ReactNode }) {
           prompt.toLowerCase().includes("about the") ||
           prompt.toLowerCase().includes("what does the") ||
           prompt.toLowerCase().includes("tell me about") ||
+          prompt.toLowerCase().includes("summarize") ||
+          prompt.toLowerCase().includes("what is") ||
+          prompt.toLowerCase().includes("how does") ||
+          prompt.toLowerCase().includes("explain") ||
           !prompt.toLowerCase().includes("test") && 
           !prompt.toLowerCase().includes("interview") &&
           !prompt.toLowerCase().includes("quiz");
@@ -224,7 +278,7 @@ function UserContext({ children }: { children: React.ReactNode }) {
                   prompt.toLowerCase().includes("exam")) {
           // Generate a mock test
           console.log("Generating mock test");
-          response = await generateMockTest(pdfContent, "comprehensive", 10);
+          response = await generateMockTest(pdfContent, "comprehensive", 10, "mixed");
           setMockTest(response);
           
           // Extract answers for scoring
@@ -274,18 +328,80 @@ function UserContext({ children }: { children: React.ReactNode }) {
       recog.onresult = async (event) => {
         let speechText = event.results[event.results.length - 1][0].transcript;
         console.log("Recognized Speech:", speechText);
-        await aiResponseHandler(speechText);
+        
+        // If already speaking, treat "stop" commands specially
+        if (speaking && 
+           (speechText.toLowerCase().includes("stop") || 
+            speechText.toLowerCase().includes("quiet") || 
+            speechText.toLowerCase().includes("shut up") ||
+            speechText.toLowerCase().includes("cancel"))) {
+          stopSpeaking();
+          setAiResponse("I've stopped speaking as requested.");
+        } else if (!speaking) {
+          // Only process speech if not already speaking
+          await aiResponseHandler(speechText);
+        }
       };
 
       recog.onend = () => {
         console.log("Speech recognition stopped...");
         setIsListening(false);
+        
+        // Auto-restart recognition if it wasn't manually stopped
+        if (!speaking) {
+          try {
+            setIsListening(true);
+            recog.start();
+          } catch (error) {
+            console.error("Error auto-restarting recognition:", error);
+            // If restart fails, wait a moment and try again
+            setTimeout(() => {
+              try {
+                setIsListening(true);
+                recog.start();
+              } catch (innerError) {
+                console.error("Failed to restart recognition after delay:", innerError);
+              }
+            }, 1000);
+          }
+        }
+      };
+
+      recog.onerror = (event) => {
+        console.error("Recognition error:", event.error);
+        // If aborted, don't show toast
+        if (event.error !== 'aborted') {
+          toast.error("Voice recognition error", { 
+            description: "Please try again or type your question" 
+          });
+        }
       };
 
       setRecognition(recog);
+      
+      // Auto-start recognition
+      try {
+        recog.start();
+      } catch (error) {
+        console.error("Error starting recognition initially:", error);
+      }
     } else {
       console.warn("Speech Recognition is not supported in this browser.");
+      toast.error("Voice features unavailable", { 
+        description: "Your browser doesn't support speech recognition" 
+      });
     }
+    
+    // Cleanup
+    return () => {
+      if (recognition) {
+        try {
+          recognition.stop();
+        } catch (error) {
+          console.error("Error stopping recognition on cleanup:", error);
+        }
+      }
+    };
   }, []);
 
   function toggleRecognition(): void {

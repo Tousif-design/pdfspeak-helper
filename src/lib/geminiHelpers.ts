@@ -124,21 +124,32 @@ export async function answerQuestionFromPdf(question: string, pdfText: string): 
 /**
  * Generates a mock test based on PDF content
  */
-export async function generateMockTest(pdfText: string, testType: string, numQuestions: number): Promise<string> {
+export async function generateMockTest(pdfText: string, testType: string, numQuestions: number, questionFormat: string = "mixed"): Promise<string> {
   try {
-    console.log("Generating mock test, content length:", pdfText.length);
+    console.log("Generating mock test, content length:", pdfText.length, "test type:", testType, "format:", questionFormat);
+    
+    let formatInstructions = "";
+    if (questionFormat === "mcq") {
+      formatInstructions = "Include ONLY multiple choice questions with options labeled A, B, C, D.";
+    } else if (questionFormat === "short_answer") {
+      formatInstructions = "Include ONLY short answer questions that require written responses.";
+    } else {
+      formatInstructions = "Include a mix of multiple choice questions with options labeled A, B, C, D and short answer questions.";
+    }
+    
     const prompt = `
-      Create a ${testType} mock test with ${numQuestions} questions based on the following content.
-      Include mostly multiple choice questions with options labeled A, B, C, D and a few short answer questions.
+      Create a ${testType} mock test with exactly ${numQuestions} questions based on the following content.
+      ${formatInstructions}
       
       Format the test as follows:
       1. Start with a clear title
       2. Include clear instructions
       3. Number each question
       4. For multiple choice, format as "A. option", "B. option", etc.
-      5. End with an ANSWERS section that lists just the correct answers (letter for multiple choice, short text for others)
+      5. End with an ANSWERS section that lists the correct answers (letter for multiple choice, short text for others)
       
-      Make the test comprehensive and challenging, but fair based on the provided content.
+      VERY IMPORTANT: Make the test comprehensive and challenging, but ensure ALL questions directly relate to the provided content.
+      Make sure each question can be answered based on the provided content only.
       
       Content:
       ${pdfText.slice(0, 50000)}
@@ -162,9 +173,10 @@ export async function generateMockTest(pdfText: string, testType: string, numQue
  */
 export async function prepareInterviewQuestions(pdfText: string, interviewType: string): Promise<string[]> {
   try {
+    console.log("Preparing interview questions, type:", interviewType);
     const prompt = `
       Create 10 challenging ${interviewType} interview questions based on the following content.
-      Focus on testing deep understanding and application of concepts.
+      Focus on testing deep understanding and application of concepts from the provided document.
       Questions should be comprehensive and require detailed answers.
       
       For each question:
@@ -231,5 +243,105 @@ export async function evaluateInterviewResponse(question: string, response: stri
     console.error("Error evaluating interview response:", error);
     toast.error("Failed to evaluate your response");
     throw new Error("Interview evaluation failed");
+  }
+}
+
+/**
+ * Has the AI conduct an interview based on PDF content
+ */
+export async function conductAIInterview(pdfText: string, interviewType: string): Promise<string[]> {
+  try {
+    console.log("Setting up AI interview, type:", interviewType);
+    const prompt = `
+      Create a structured ${interviewType} interview script based on the following content.
+      The interview should consist of 5 rounds:
+      
+      1. Introduction - A short welcome and explanation of the interview process
+      2. 5 technical questions directly related to the content that test knowledge
+      3. 2 application questions that test how the person would apply the concepts
+      4. 1 challenge question that tests deeper understanding
+      5. Conclusion - A polite ending to the interview
+      
+      Format each part with clear headings and return as a complete interview script.
+      
+      Content:
+      ${pdfText.slice(0, 40000)}
+    `;
+    
+    const response = await runQuery(prompt, {
+      temperature: 0.7,
+      maxOutputTokens: 4000,
+    });
+    
+    // Split the response into sections
+    const sections = response.split(/\n#{1,2}\s+/i);
+    return sections.filter(s => s.trim().length > 0);
+  } catch (error) {
+    console.error("Error preparing AI interview:", error);
+    toast.error("Failed to prepare AI interview");
+    throw new Error("AI interview preparation failed");
+  }
+}
+
+/**
+ * Generates the next interview question based on previous answers
+ */
+export async function getNextInterviewQuestion(
+  pdfContent: string, 
+  previousQuestions: string[], 
+  previousAnswers: string[],
+  interviewProgress: number
+): Promise<string> {
+  try {
+    console.log("Generating next interview question, progress:", interviewProgress);
+    
+    // Prepare context with previous Q&A
+    let context = "Previous questions and answers:\n";
+    for (let i = 0; i < previousQuestions.length; i++) {
+      context += `Q: ${previousQuestions[i]}\n`;
+      if (i < previousAnswers.length) {
+        context += `A: ${previousAnswers[i]}\n\n`;
+      }
+    }
+    
+    // Determine question type based on progress
+    let questionType = "basic knowledge";
+    if (interviewProgress > 0.3 && interviewProgress < 0.7) {
+      questionType = "application of concepts";
+    } else if (interviewProgress >= 0.7) {
+      questionType = "challenging conceptual";
+    }
+    
+    const prompt = `
+      You are conducting a professional interview based on this PDF content.
+      Generate the next interview question based on previous interactions and current progress.
+      
+      PDF Content: 
+      ${pdfContent.slice(0, 20000)}
+      
+      ${context}
+      
+      Current interview progress: ${Math.round(interviewProgress * 100)}%
+      Question type needed: ${questionType}
+      
+      Generate only ONE question that:
+      - Is directly related to the PDF content
+      - Builds on previous questions where appropriate
+      - Is appropriate for the current stage of the interview
+      - Requires a thoughtful response
+      
+      Return ONLY the question text with no additional context or explanations.
+    `;
+    
+    const response = await runQuery(prompt, {
+      temperature: 0.6,
+      maxOutputTokens: 300,
+    });
+    
+    return response.trim();
+  } catch (error) {
+    console.error("Error generating next interview question:", error);
+    toast.error("Failed to generate next question");
+    throw new Error("Interview question generation failed");
   }
 }
