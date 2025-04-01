@@ -1,5 +1,4 @@
-
-import React, { useContext, useState } from "react";
+import React, { useContext, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { DataContext } from "../context/UserContext";
 import Hero from "../components/Hero";
@@ -18,7 +17,8 @@ const Index = () => {
     handleFileUpload, 
     isProcessingPdf, 
     mockTest,
-    isPdfAnalyzed
+    isPdfAnalyzed,
+    recognizedSpeech
   } = useContext(DataContext);
   
   const [activeTab, setActiveTab] = useState("chat");
@@ -40,6 +40,19 @@ const Index = () => {
       setActiveTab("test");
     }
   }, [mockTest]);
+
+  // Dispatch custom events when speech recognition is active
+  useEffect(() => {
+    if (recognizedSpeech) {
+      // Create a custom event with the recognized speech
+      const speechEvent = new CustomEvent('speechRecognition', {
+        detail: { transcript: recognizedSpeech }
+      });
+      
+      // Dispatch the event
+      window.dispatchEvent(speechEvent);
+    }
+  }, [recognizedSpeech]);
 
   return (
     <main className="min-h-screen flex flex-col bg-gradient-to-b from-background via-background to-secondary/20">

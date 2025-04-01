@@ -21,23 +21,31 @@ import {
   FileText as FileTextIcon,
   AlertTriangle
 } from "lucide-react";
-import { prepareInterviewQuestions, evaluateInterviewResponse, conductAIInterview, getNextInterviewQuestion } from "../lib/geminiHelpers";
+import { prepareInterviewQuestions, evaluateInterviewResponse } from "../lib/geminiHelpers";
 import { toast } from "sonner";
 
 const InterviewSimulator = () => {
   const { 
     pdfContent, 
     interviewQuestions, 
+    setInterviewQuestions,
     interviewMode,
     interviewFeedback,
     interviewScore,
     speak,
     stopSpeaking,
-    answerInterviewQuestion,
     videoRef,
     cameraActive,
     toggleRecognition,
-    isListening
+    isListening,
+    prepareInterviewQuestionsFromPdf,
+    answerInterviewQuestion,
+    startInterviewWithCamera,
+    stopInterview,
+    recognizedSpeech,
+    setRecognizedSpeech,
+    currentInterviewQuestion,
+    currentQuestionIndex
   } = useContext(DataContext);
   
   const [generating, setGenerating] = useState(false);
@@ -53,8 +61,6 @@ const InterviewSimulator = () => {
   const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [isInterviewActive, setIsInterviewActive] = useState(false);
-  const [interviewScript, setInterviewScript] = useState<string[]>([]);
-  const [currentQuestion, setCurrentQuestion] = useState("");
   const [previousQuestions, setPreviousQuestions] = useState<string[]>([]);
   const [previousAnswers, setPreviousAnswers] = useState<string[]>([]);
   const [interviewProgress, setInterviewProgress] = useState(0);
@@ -62,45 +68,47 @@ const InterviewSimulator = () => {
   const [currentScore, setCurrentScore] = useState<number | null>(null);
   const [aiSpeaking, setAiSpeaking] = useState(false);
   const [waitingForAnswer, setWaitingForAnswer] = useState(false);
-  const [voiceRecognitionEnabled, setVoiceRecognitionEnabled] = useState(true);
+  const [listeningForAnswer, setListeningForAnswer] = useState(false);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Generate interview script
-  const generateInterviewScript = async () => {
+  // Generate interview questions
+  const generateInterviewQuestions = async () => {
     if (!pdfContent) {
       toast.error("No PDF content", { description: "Please upload a PDF first" });
-      return [];
+      return;
     }
     
     try {
       setGenerating(true);
-      const script = await conductAIInterview(pdfContent, interviewSettings.type);
-      setInterviewScript(script);
+      const questions = await prepareInterviewQuestionsFromPdf();
+      setInterviewQuestions(questions);
+      setGenerating(false);
+      
       toast.success("Interview prepared", { 
         description: "Ready to begin your interview" 
       });
-      return script;
     } catch (error) {
-      console.error("Error generating interview script:", error);
-      toast.error("Failed to prepare interview", { 
-        description: error instanceof Error ? error.message : "Unknown error" 
+      console.error("Error generating interview questions:", error);
+      toast.error("Failed to prepare interview", {
+        description: "Please try again with a different PDF"
       });
-      return [];
-    } finally {
       setGenerating(false);
     }
   };
   
   // Schedule interview for immediate start or later
-  const scheduleInterview = async (scheduleForLater = false) => {
-    if (interviewScript.length === 0) {
-      const script = await generateInterviewScript();
-      if (!script || script.length === 0) return;
+  const scheduleInterview = (scheduleForLater = false) => {
+    if (interviewQuestions.length === 0) {
+      toast.error("No questions available", { 
+        description: "Please generate questions first" 
+      });
+      return;
     }
     
     if (scheduleForLater) {
@@ -132,100 +140,24 @@ const InterviewSimulator = () => {
       setCurrentScore(null);
       setFeedbackData("");
       setUserResponse("");
+      setRecognizedSpeech("");
       
-      // Start camera if enabled
-      if (interviewSettings.camera) {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: true, 
-            audio: true 
-          });
-          
-          if (localVideoRef.current) {
-            localVideoRef.current.srcObject = stream;
-            mediaStreamRef.current = stream;
-          }
-        } catch (err) {
-          console.error("Camera access error:", err);
-          toast.error("Camera access denied", { 
-            description: "Interview will continue without camera" 
-          });
-        }
-      }
+      // Start camera and interview
+      await startInterviewWithCamera();
       
       setIsInterviewActive(true);
+      setIsAnswering(true);
+      setWaitingForAnswer(true);
       
-      // Get intro text from the interview script
-      const introText = interviewScript[0] || 
-        "Welcome to your interview. I'll be asking you questions based on the PDF you uploaded. Let's begin with the first question.";
-      
-      // Start with introduction
-      speak(introText);
-      setAiSpeaking(true);
-      
-      // After introduction, ask first question
-      setTimeout(() => {
-        askNextQuestion();
-      }, calculateSpeakingTime(introText));
+      // Start voice recognition if enabled
+      if (interviewSettings.voice) {
+        setListeningForAnswer(true);
+        toggleRecognition();
+      }
       
     } catch (error) {
       console.error("Error starting interview:", error);
       toast.error("Failed to start interview", { 
-        description: "Please try again" 
-      });
-    }
-  };
-  
-  // Ask next question
-  const askNextQuestion = async () => {
-    setAiSpeaking(false);
-    
-    // Generate next question
-    try {
-      let nextQuestion;
-      if (previousQuestions.length < 5) {
-        // Use pre-generated questions for the first few
-        if (interviewScript.length > 1 && interviewScript[previousQuestions.length + 1]) {
-          nextQuestion = interviewScript[previousQuestions.length + 1];
-        } else {
-          nextQuestion = await getNextInterviewQuestion(
-            pdfContent, 
-            previousQuestions, 
-            previousAnswers,
-            interviewProgress
-          );
-        }
-      } else {
-        // Dynamic questions based on previous answers
-        nextQuestion = await getNextInterviewQuestion(
-          pdfContent, 
-          previousQuestions, 
-          previousAnswers,
-          interviewProgress
-        );
-      }
-      
-      setCurrentQuestion(nextQuestion);
-      
-      // Speak the question
-      speak(nextQuestion);
-      setAiSpeaking(true);
-      
-      // After speaking, start listening
-      setTimeout(() => {
-        setAiSpeaking(false);
-        setIsAnswering(true);
-        setWaitingForAnswer(true);
-        
-        // Start voice recognition if voice is enabled
-        if (interviewSettings.voice && voiceRecognitionEnabled) {
-          toggleRecognition();
-        }
-      }, calculateSpeakingTime(nextQuestion));
-      
-    } catch (error) {
-      console.error("Error getting next question:", error);
-      toast.error("Failed to generate question", { 
         description: "Please try again" 
       });
     }
@@ -241,74 +173,49 @@ const InterviewSimulator = () => {
   
   // Submit answer
   const submitAnswer = async () => {
-    if (!userResponse.trim() && !recording) {
+    // Get answer from either typed response or speech recognition
+    const answer = userResponse || recognizedSpeech;
+    
+    if (!answer.trim()) {
       toast.error("Empty response", { description: "Please provide an answer" });
       return;
     }
     
-    // If voice recognition is active, stop it
-    if (isListening) {
-      toggleRecognition();
+    // Stop listening and clear timer
+    if (listeningForAnswer) {
+      setListeningForAnswer(false);
     }
     
-    // If still recording, stop recording
-    if (recording) {
-      stopRecording();
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
     }
     
     setIsAnswering(false);
     setWaitingForAnswer(false);
     
     // Add current Q&A to history
-    setPreviousQuestions(prev => [...prev, currentQuestion]);
-    setPreviousAnswers(prev => [...prev, userResponse]);
+    setPreviousQuestions(prev => [...prev, currentInterviewQuestion]);
+    setPreviousAnswers(prev => [...prev, answer]);
     
     // Calculate progress (0 to 1)
     const newProgress = Math.min((previousQuestions.length + 1) / 10, 1);
     setInterviewProgress(newProgress);
     
-    try {
-      // Evaluate answer
-      const feedback = await evaluateInterviewResponse(
-        currentQuestion,
-        userResponse,
-        pdfContent
-      );
-      
-      setFeedbackData(feedback);
-      
-      // Extract score from feedback (assuming it ends with X/5 stars)
-      const scoreMatch = feedback.match(/(\d+)\/5 stars/i) || feedback.match(/(\d+)\.(\d+)\/5 stars/i) || feedback.match(/(\d+) stars/i);
-      if (scoreMatch) {
-        const scoreFraction = parseFloat(scoreMatch[1]);
-        const scorePercentage = Math.round((scoreFraction / 5) * 100);
-        setCurrentScore(scorePercentage);
-      }
-      
-      // Speak feedback
-      speak(feedback);
-      setAiSpeaking(true);
-      
-      // Clear user response
-      setUserResponse("");
-      
-      // If interview is not complete, prepare for next question
-      if (newProgress < 1) {
-        // Wait for feedback to be spoken before asking next question
-        setTimeout(() => {
-          askNextQuestion();
-        }, calculateSpeakingTime(feedback));
-      } else {
-        // Interview complete
-        setTimeout(() => {
-          setAiSpeaking(false);
-          endInterview();
-        }, calculateSpeakingTime(feedback));
-      }
-      
-    } catch (error) {
-      console.error("Error evaluating answer:", error);
-      toast.error("Failed to evaluate answer", { description: "Please try again" });
+    // Process the answer with the AI
+    await answerInterviewQuestion(answer);
+    
+    // Clear user response and recognized speech
+    setUserResponse("");
+    setRecognizedSpeech("");
+    
+    // Start listening for next question
+    setIsAnswering(true);
+    setWaitingForAnswer(true);
+    
+    // Start voice recognition if still active
+    if (interviewSettings.voice) {
+      setListeningForAnswer(true);
     }
   };
   
@@ -360,25 +267,13 @@ const InterviewSimulator = () => {
   
   // End interview
   const endInterview = () => {
+    stopInterview();
     setIsInterviewActive(false);
-    
-    // Calculate final score
-    const finalScore = currentScore || Math.floor(Math.random() * 31) + 70; // 70-100% if no score
     
     // Show completion message
     toast.success("Interview completed", { 
-      description: `Your final score: ${finalScore}%` 
+      description: `Your final score: ${interviewScore || 75}%` 
     });
-    
-    // Stop camera
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach(track => track.stop());
-      mediaStreamRef.current = null;
-    }
-    
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = null;
-    }
     
     // Stop any ongoing speech
     stopSpeaking();
@@ -391,6 +286,11 @@ const InterviewSimulator = () => {
     
     setCountdown(null);
     setScheduledDate(null);
+    
+    // Reset states
+    setIsAnswering(false);
+    setWaitingForAnswer(false);
+    setListeningForAnswer(false);
   };
   
   // Update countdown timer
@@ -413,42 +313,50 @@ const InterviewSimulator = () => {
     };
   }, [countdown]);
   
-  // Update user response when speech is recognized
+  // Update interviewMode based on interviewActive
+  useEffect(() => {
+    if (isInterviewActive) {
+      if (cameraActive && currentInterviewQuestion) {
+        setInterviewProgress(currentQuestionIndex / interviewQuestions.length);
+      }
+    }
+  }, [isInterviewActive, cameraActive, currentInterviewQuestion, currentQuestionIndex]);
+  
+  // Listen for speech recognition updates
   useEffect(() => {
     const handleSpeechRecognition = (event: CustomEvent) => {
-      if (isAnswering && waitingForAnswer) {
+      if (isAnswering && waitingForAnswer && listeningForAnswer) {
         const text = event.detail?.transcript;
         if (text) {
-          setUserResponse(prev => (prev ? prev + " " + text : text));
+          setRecognizedSpeech(prev => {
+            const newText = prev ? `${prev} ${text}` : text;
+            return newText;
+          });
+          
+          // Reset the auto-submit timer
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+          }
+          
+          // Set a new auto-submit timer
+          silenceTimerRef.current = setTimeout(() => {
+            if (recognizedSpeech) {
+              submitAnswer();
+            }
+          }, 3000); // 3 seconds of silence will auto-submit
         }
       }
     };
     
-    // Listen for speech recognition events
     window.addEventListener('speechRecognition', handleSpeechRecognition as EventListener);
     
     return () => {
       window.removeEventListener('speechRecognition', handleSpeechRecognition as EventListener);
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+      }
     };
-  }, [isAnswering, waitingForAnswer]);
-  
-  // Auto-submit answer after a period of silence
-  useEffect(() => {
-    let silenceTimer: NodeJS.Timeout | null = null;
-    
-    if (isAnswering && waitingForAnswer && userResponse && !aiSpeaking) {
-      // If user has provided a response and has been silent for 3 seconds, auto-submit
-      silenceTimer = setTimeout(() => {
-        if (userResponse.trim() && isAnswering && waitingForAnswer) {
-          submitAnswer();
-        }
-      }, 5000); // 5 seconds of silence
-    }
-    
-    return () => {
-      if (silenceTimer) clearTimeout(silenceTimer);
-    };
-  }, [userResponse, isAnswering, waitingForAnswer, aiSpeaking]);
+  }, [isAnswering, waitingForAnswer, listeningForAnswer, recognizedSpeech]);
   
   // Format countdown time
   const formatCountdown = (ms: number) => {
@@ -498,7 +406,7 @@ const InterviewSimulator = () => {
             </div>
           </div>
           
-          {isInterviewActive ? (
+          {isInterviewActive || cameraActive ? (
             <button
               onClick={endInterview}
               className="flex items-center gap-2 px-4 py-2 rounded-lg bg-destructive text-white hover:bg-destructive/90 transition-colors"
@@ -511,7 +419,7 @@ const InterviewSimulator = () => {
               <Clock className="w-4 h-4" />
               <span>Starting in: {formatCountdown(countdown)}</span>
             </div>
-          ) : interviewScript.length > 0 && (
+          ) : interviewQuestions.length > 0 && (
             <div className="flex gap-2">
               <button
                 onClick={() => scheduleInterview(true)}
@@ -588,13 +496,13 @@ const InterviewSimulator = () => {
             </div>
           )}
           
-          {isInterviewActive ? (
+          {isInterviewActive || cameraActive ? (
             <div className="space-y-6">
               {/* Interview progress */}
               <div className="w-full bg-gray-200 rounded-full h-2.5">
                 <div 
                   className="bg-primary h-2.5 rounded-full transition-all duration-700" 
-                  style={{ width: `${interviewProgress * 100}%` }}
+                  style={{ width: `${(currentQuestionIndex / interviewQuestions.length) * 100}%` }}
                 ></div>
               </div>
               
@@ -604,14 +512,14 @@ const InterviewSimulator = () => {
                   {interviewSettings.camera ? (
                     <>
                       <video
-                        ref={localVideoRef}
+                        ref={videoRef}
                         autoPlay
                         muted
                         playsInline
                         className="w-full h-full object-cover"
                       />
                       <div className="absolute bottom-4 right-4 flex gap-2">
-                        <div className={`w-3 h-3 rounded-full ${recording ? 'bg-red-500 animate-pulse' : 'bg-gray-400'}`}></div>
+                        <div className={`w-3 h-3 rounded-full ${recording || isListening ? 'bg-red-500 animate-pulse' : 'bg-gray-400'}`}></div>
                       </div>
                     </>
                   ) : (
@@ -623,36 +531,23 @@ const InterviewSimulator = () => {
                 
                 {/* Current question and feedback */}
                 <div className="flex flex-col h-full space-y-4">
-                  {/* AI Speaking indicator */}
-                  {aiSpeaking && (
-                    <div className="glass-card rounded-lg p-3 bg-primary/10 flex items-center gap-3 animate-pulse">
-                      <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
-                        <span className="text-primary">AI</span>
+                  {/* Question */}
+                  {currentInterviewQuestion && (
+                    <div className="glass-card rounded-lg p-4 bg-white/70">
+                      <div className="flex justify-between items-center mb-2">
+                        <h4 className="font-medium text-sm text-primary">
+                          Question {currentQuestionIndex + 1} of {interviewQuestions.length}
+                        </h4>
+                        {currentScore !== null && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-sm font-medium">Score: {currentScore}%</span>
+                            {renderStars(currentScore)}
+                          </div>
+                        )}
                       </div>
-                      <div className="flex items-center gap-1">
-                        <div className="w-2 h-2 bg-primary rounded-full animate-bounce"></div>
-                        <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                        <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
-                      </div>
-                      <span className="text-sm text-primary">Speaking...</span>
+                      <p className="text-lg font-medium">{currentInterviewQuestion}</p>
                     </div>
                   )}
-                  
-                  {/* Question */}
-                  <div className="glass-card rounded-lg p-4 bg-white/70">
-                    <div className="flex justify-between items-center mb-2">
-                      <h4 className="font-medium text-sm text-primary">
-                        Question {previousQuestions.length + 1} of 10
-                      </h4>
-                      {currentScore !== null && (
-                        <div className="flex items-center gap-1">
-                          <span className="text-sm font-medium">Score: {currentScore}%</span>
-                          {renderStars(currentScore)}
-                        </div>
-                      )}
-                    </div>
-                    <p className="text-lg font-medium">{currentQuestion}</p>
-                  </div>
                   
                   {/* Answer input */}
                   {isAnswering ? (
@@ -668,40 +563,40 @@ const InterviewSimulator = () => {
                       </div>
                       
                       <textarea 
-                        value={userResponse}
-                        onChange={(e) => setUserResponse(e.target.value)}
+                        value={userResponse || recognizedSpeech}
+                        onChange={(e) => {
+                          setUserResponse(e.target.value);
+                          // Reset silence timer when typing
+                          if (silenceTimerRef.current) {
+                            clearTimeout(silenceTimerRef.current);
+                            silenceTimerRef.current = null;
+                          }
+                        }}
                         placeholder="Type your answer here or speak using the microphone..."
                         className="w-full p-3 border border-gray-200 rounded-md flex-grow mb-3 bg-white"
-                        disabled={recording}
                       ></textarea>
                       
                       <div className="flex justify-between">
                         <div className="flex gap-2">
-                          {!recording && !isListening ? (
-                            <button
-                              onClick={startRecording}
-                              className="px-3 py-1.5 rounded-md bg-secondary text-white flex items-center gap-1.5"
-                            >
-                              <Mic size={16} />
-                              <span>Record</span>
-                            </button>
-                          ) : recording ? (
-                            <button
-                              onClick={stopRecording}
-                              className="px-3 py-1.5 rounded-md bg-red-500 text-white flex items-center gap-1.5 animate-pulse"
-                            >
-                              <StopCircle size={16} />
-                              <span>Stop</span>
-                            </button>
-                          ) : (
-                            <button
-                              onClick={toggleRecognition}
-                              className="px-3 py-1.5 rounded-md bg-green-500 text-white flex items-center gap-1.5 animate-pulse"
-                            >
-                              <Mic size={16} />
-                              <span>Listening</span>
-                            </button>
-                          )}
+                          {interviewSettings.voice ? (
+                            isListening ? (
+                              <button
+                                onClick={toggleRecognition}
+                                className="px-3 py-1.5 rounded-md bg-green-500 text-white flex items-center gap-1.5 animate-pulse"
+                              >
+                                <Mic size={16} />
+                                <span>Listening</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={toggleRecognition}
+                                className="px-3 py-1.5 rounded-md bg-secondary text-white flex items-center gap-1.5"
+                              >
+                                <MicOff size={16} />
+                                <span>Start Listening</span>
+                              </button>
+                            )
+                          ) : null}
                         </div>
                         
                         <button
@@ -713,24 +608,24 @@ const InterviewSimulator = () => {
                         </button>
                       </div>
                     </div>
-                  ) : feedbackData ? (
+                  ) : interviewFeedback ? (
                     <div className="glass-card rounded-lg p-4 bg-white/70 flex-grow overflow-y-auto">
                       <div className="flex justify-between items-center mb-2">
                         <h4 className="font-medium text-sm text-primary">Feedback:</h4>
-                        {renderStars(currentScore || 0)}
+                        {renderStars(interviewScore || 0)}
                       </div>
                       <div className="prose prose-sm max-w-none">
-                        <p className="whitespace-pre-line">{feedbackData}</p>
+                        <p className="whitespace-pre-line">{interviewFeedback}</p>
                       </div>
                       
-                      {interviewProgress >= 1 && (
+                      {currentQuestionIndex >= interviewQuestions.length - 1 && interviewScore !== null && (
                         <div className="mt-4 p-3 bg-primary/10 rounded-md">
                           <div className="flex items-center justify-between mb-2">
                             <h4 className="font-medium text-primary flex items-center gap-1.5">
                               <Award className="w-4 h-4" />
                               Interview Complete
                             </h4>
-                            <span className="text-sm font-medium">{currentScore || 85}%</span>
+                            <span className="text-sm font-medium">{interviewScore}%</span>
                           </div>
                           <p className="text-sm">
                             You've completed the interview. Review your feedback above or end the interview to return to the main view.
@@ -751,7 +646,7 @@ const InterviewSimulator = () => {
                           <Mic className="w-6 h-6 text-primary" />
                         </div>
                         <p className="text-sm text-muted-foreground">
-                          Waiting for the interviewer to ask a question...
+                          Waiting for the interview to begin...
                         </p>
                       </div>
                     </div>
@@ -762,7 +657,7 @@ const InterviewSimulator = () => {
           ) : (
             <>
               {/* Interview settings */}
-              {interviewScript.length === 0 && !countdown && (
+              {interviewQuestions.length === 0 && !countdown && (
                 <div className="mb-6 glass-card rounded-lg p-4 bg-white/50">
                   <div className="flex items-center gap-2 mb-3">
                     <Settings className="w-5 h-5 text-primary" />
@@ -885,7 +780,7 @@ const InterviewSimulator = () => {
                   
                   <div className="mt-6">
                     <button
-                      onClick={generateInterviewScript}
+                      onClick={generateInterviewQuestions}
                       disabled={generating || !pdfContent}
                       className="w-full py-2.5 rounded-md bg-primary text-white flex items-center justify-center gap-2 disabled:opacity-50"
                     >
@@ -911,7 +806,7 @@ const InterviewSimulator = () => {
               )}
               
               {/* Interview prepared, ready to start */}
-              {interviewScript.length > 0 && !countdown && (
+              {interviewQuestions.length > 0 && !countdown && (
                 <div className="mb-6 glass-card rounded-lg p-4 bg-white/50">
                   <div className="flex items-center gap-3 mb-4">
                     <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
@@ -938,7 +833,7 @@ const InterviewSimulator = () => {
                       </li>
                       <li className="flex items-center gap-2">
                         <FileTextIcon className="w-4 h-4 text-primary" />
-                        <span>Questions: Based on the PDF content you uploaded</span>
+                        <span>Questions: {interviewQuestions.length} questions based on your PDF</span>
                       </li>
                     </ul>
                   </div>
@@ -961,7 +856,10 @@ const InterviewSimulator = () => {
                     </button>
                     
                     <button
-                      onClick={() => setInterviewScript([])}
+                      onClick={() => {
+                        setInterviewQuestions([]);
+                        setCurrentScore(null);
+                      }}
                       className="py-2 rounded-md border border-gray-300 text-gray-700 flex items-center justify-center gap-2"
                     >
                       <XCircle size={16} />
@@ -972,7 +870,7 @@ const InterviewSimulator = () => {
               )}
               
               {/* Introduction */}
-              {!interviewScript.length && !countdown && (
+              {!interviewQuestions.length && !countdown && (
                 <div className="text-center max-w-2xl mx-auto">
                   <div className="w-20 h-20 mx-auto bg-primary/10 rounded-full flex items-center justify-center mb-4">
                     <Video className="w-10 h-10 text-primary" />

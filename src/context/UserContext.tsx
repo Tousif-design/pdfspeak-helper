@@ -46,6 +46,10 @@ interface UserContextType {
   inputText: string;
   setInputText: React.Dispatch<React.SetStateAction<string>>;
   handleSubmitText: (e: React.FormEvent) => void;
+  prepareInterviewQuestionsFromPdf: () => Promise<string[]>;
+  setInterviewQuestions: React.Dispatch<React.SetStateAction<string[]>>;
+  recognizedSpeech: string;
+  setRecognizedSpeech: React.Dispatch<React.SetStateAction<string>>;
 }
 
 const DataContext = createContext<UserContextType>({} as UserContextType);
@@ -55,6 +59,7 @@ function UserContext({ children }: { children: React.ReactNode }) {
   const [speaking, setSpeaking] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
+  const [recognizedSpeech, setRecognizedSpeech] = useState("");
   
   // User interaction states
   const [userQuery, setUserQuery] = useState("");
@@ -108,65 +113,101 @@ function UserContext({ children }: { children: React.ReactNode }) {
 
   function speak(text: string): void {
     if (!text) return;
+    console.log("Speaking:", text.substring(0, 50) + "...");
 
     // First ensure any ongoing speech is stopped
     stopSpeaking();
 
     let cleanedText = cleanText(text);
-    let text_speak = new SpeechSynthesisUtterance(cleanedText);
-    text_speak.volume = 1;
-    text_speak.rate = 1.1;
-    text_speak.pitch = 1.2;
-    text_speak.lang = "en-GB";
-
-    // Prevent long texts from getting cut off
-    if (cleanedText.length > 1000) {
-      // Split into sentences and speak in chunks
-      const sentences = cleanedText.match(/[^.!?]+[.!?]+/g) || [];
-      let i = 0;
+    
+    // Create new utterance
+    const utterance = new SpeechSynthesisUtterance(cleanedText);
+    utterance.volume = 1;
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.lang = "en-US";
+    
+    // Select a voice if available
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length) {
+      // Try to find an English female voice
+      const englishVoice = voices.find(voice => 
+        voice.lang.includes('en') && voice.name.includes('Female')
+      ) || voices.find(voice => voice.lang.includes('en')) || voices[0];
       
-      const speakNextChunk = () => {
-        if (i < sentences.length) {
-          const chunk = sentences.slice(i, i + 5).join(" ");
-          const chunkUtterance = new SpeechSynthesisUtterance(chunk);
-          chunkUtterance.volume = 1;
-          chunkUtterance.rate = 1.1;
-          chunkUtterance.pitch = 1.2;
-          chunkUtterance.lang = "en-GB";
-          
-          chunkUtterance.onstart = () => {
-            setSpeaking(true);
-            if (isListening && recognition) {
-              recognition.stop();
-              setIsListening(false);
-            }
-          };
-          
-          chunkUtterance.onend = () => {
-            i += 5;
-            speakNextChunk();
-          };
-          
-          window.speechSynthesis.speak(chunkUtterance);
-        } else {
-          setSpeaking(false);
-          // Resume listening if it was active before
-          if (recognition && !isListening) {
-            try {
-              setIsListening(true);
-              recognition.start();
-            } catch (error) {
-              console.error("Error restarting recognition:", error);
+      utterance.voice = englishVoice;
+    }
+    
+    // Handle long text by chunking
+    if (cleanedText.length > 500) {
+      const sentences = cleanedText.match(/[^.!?]+[.!?]+/g) || [];
+      
+      // If too long, chunk it
+      if (sentences.length > 5) {
+        let chunks: string[] = [];
+        let currentChunk = "";
+        
+        sentences.forEach(sentence => {
+          if (currentChunk.length + sentence.length < 500) {
+            currentChunk += sentence;
+          } else {
+            chunks.push(currentChunk);
+            currentChunk = sentence;
+          }
+        });
+        
+        if (currentChunk) {
+          chunks.push(currentChunk);
+        }
+        
+        // Setup utterance for first chunk
+        utterance.text = chunks[0];
+        let chunkIndex = 1;
+        
+        utterance.onstart = () => {
+          setSpeaking(true);
+          if (isListening && recognition) {
+            recognition.stop();
+            setIsListening(false);
+          }
+        };
+        
+        utterance.onend = () => {
+          if (chunkIndex < chunks.length) {
+            // Speak next chunk
+            const nextUtterance = new SpeechSynthesisUtterance(chunks[chunkIndex]);
+            nextUtterance.volume = 1;
+            nextUtterance.rate = 1.0;
+            nextUtterance.pitch = 1.0;
+            nextUtterance.voice = utterance.voice;
+            
+            nextUtterance.onend = utterance.onend; // Reuse the onend handler
+            
+            chunkIndex++;
+            window.speechSynthesis.speak(nextUtterance);
+          } else {
+            // All chunks finished
+            setSpeaking(false);
+            
+            // Resume listening if it was active before
+            if (recognition && !isListening) {
+              try {
+                setIsListening(true);
+                recognition.start();
+              } catch (error) {
+                console.error("Error restarting recognition:", error);
+              }
             }
           }
-        }
-      };
-      
-      speakNextChunk();
-      return;
+        };
+        
+        window.speechSynthesis.speak(utterance);
+        return;
+      }
     }
-
-    text_speak.onstart = () => {
+    
+    // For shorter text, speak normally
+    utterance.onstart = () => {
       setSpeaking(true);
       if (isListening && recognition) {
         recognition.stop();
@@ -174,7 +215,7 @@ function UserContext({ children }: { children: React.ReactNode }) {
       }
     };
 
-    text_speak.onend = () => {
+    utterance.onend = () => {
       setSpeaking(false);
       // Only restart listening if recognition exists and we were previously listening
       if (recognition && !isListening) {
@@ -195,7 +236,7 @@ function UserContext({ children }: { children: React.ReactNode }) {
       }
     };
 
-    window.speechSynthesis.speak(text_speak);
+    window.speechSynthesis.speak(utterance);
   }
 
   async function aiResponseHandler(prompt: string): Promise<void> {
@@ -311,86 +352,126 @@ function UserContext({ children }: { children: React.ReactNode }) {
     }
   }
 
+  // Initialize speech recognition
   useEffect(() => {
-    let SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      let recog = new SpeechRecognition();
-      recog.continuous = true;
-      recog.interimResults = false;
-      recog.lang = "en-US";
-      recog.maxAlternatives = 1;
-
-      recog.onstart = () => {
-        console.log("Speech recognition started...");
-        setIsListening(true);
-      };
-
-      recog.onresult = async (event) => {
-        let speechText = event.results[event.results.length - 1][0].transcript;
-        console.log("Recognized Speech:", speechText);
-        
-        // If already speaking, treat "stop" commands specially
-        if (speaking && 
-           (speechText.toLowerCase().includes("stop") || 
-            speechText.toLowerCase().includes("quiet") || 
-            speechText.toLowerCase().includes("shut up") ||
-            speechText.toLowerCase().includes("cancel"))) {
-          stopSpeaking();
-          setAiResponse("I've stopped speaking as requested.");
-        } else if (!speaking) {
-          // Only process speech if not already speaking
-          await aiResponseHandler(speechText);
-        }
-      };
-
-      recog.onend = () => {
-        console.log("Speech recognition stopped...");
-        setIsListening(false);
-        
-        // Auto-restart recognition if it wasn't manually stopped
-        if (!speaking) {
-          try {
-            setIsListening(true);
-            recog.start();
-          } catch (error) {
-            console.error("Error auto-restarting recognition:", error);
-            // If restart fails, wait a moment and try again
-            setTimeout(() => {
-              try {
-                setIsListening(true);
-                recog.start();
-              } catch (innerError) {
-                console.error("Failed to restart recognition after delay:", innerError);
-              }
-            }, 1000);
+    function setupSpeechRecognition() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognitionInstance = new SpeechRecognition();
+        recognitionInstance.continuous = true;
+        recognitionInstance.interimResults = true;
+        recognitionInstance.lang = "en-US";
+        recognitionInstance.maxAlternatives = 1;
+  
+        recognitionInstance.onstart = () => {
+          console.log("Speech recognition started...");
+          setIsListening(true);
+        };
+  
+        recognitionInstance.onresult = (event) => {
+          const transcript = Array.from(event.results)
+            .map(result => result[0].transcript)
+            .join('');
+          
+          console.log("Recognized speech:", transcript);
+          setRecognizedSpeech(transcript);
+          
+          // Only process final results
+          if (event.results[event.results.length - 1].isFinal) {
+            const finalSpeech = event.results[event.results.length - 1][0].transcript;
+            
+            // Dispatch a custom event for components that need to listen to speech
+            const speechEvent = new CustomEvent('speechRecognition', {
+              detail: { transcript: finalSpeech }
+            });
+            window.dispatchEvent(speechEvent);
+  
+            // If already speaking, treat "stop" commands specially
+            if (speaking && 
+               (finalSpeech.toLowerCase().includes("stop") || 
+                finalSpeech.toLowerCase().includes("quiet") || 
+                finalSpeech.toLowerCase().includes("shut up") ||
+                finalSpeech.toLowerCase().includes("cancel"))) {
+              stopSpeaking();
+              setAiResponse("I've stopped speaking as requested.");
+            }
           }
-        }
-      };
-
-      recog.onerror = (event) => {
-        console.error("Recognition error:", event.error);
-        // If aborted, don't show toast
-        if (event.error !== 'aborted') {
-          toast.error("Voice recognition error", { 
-            description: "Please try again or type your question" 
+        };
+  
+        recognitionInstance.onend = () => {
+          console.log("Speech recognition stopped...");
+          setIsListening(false);
+          
+          // Auto-restart recognition if it wasn't manually stopped and not speaking
+          if (!speaking) {
+            try {
+              setTimeout(() => {
+                recognitionInstance.start();
+                setIsListening(true);
+                console.log("Auto-restarted speech recognition");
+              }, 500);
+            } catch (error) {
+              console.error("Error auto-restarting recognition:", error);
+            }
+          }
+        };
+  
+        recognitionInstance.onerror = (event) => {
+          console.error("Recognition error:", event.error);
+          
+          // If aborted, don't show toast
+          if (event.error !== 'aborted') {
+            toast.error("Voice recognition error", { 
+              description: "Please try again or type your question" 
+            });
+          }
+          
+          // Try to restart after error
+          setTimeout(() => {
+            try {
+              recognitionInstance.start();
+              setIsListening(true);
+              console.log("Restarted speech recognition after error");
+            } catch (innerError) {
+              console.error("Failed to restart recognition after error:", innerError);
+            }
+          }, 2000);
+        };
+  
+        setRecognition(recognitionInstance);
+        
+        // Auto-start recognition
+        try {
+          recognitionInstance.start();
+          console.log("Initial speech recognition started");
+        } catch (error) {
+          console.error("Error starting recognition initially:", error);
+          toast.error("Couldn't start voice recognition", {
+            description: "Please try refreshing the page"
           });
         }
-      };
-
-      setRecognition(recog);
-      
-      // Auto-start recognition
-      try {
-        recog.start();
-      } catch (error) {
-        console.error("Error starting recognition initially:", error);
+      } else {
+        console.warn("Speech Recognition is not supported in this browser.");
+        toast.error("Voice features unavailable", { 
+          description: "Your browser doesn't support speech recognition" 
+        });
       }
-    } else {
-      console.warn("Speech Recognition is not supported in this browser.");
-      toast.error("Voice features unavailable", { 
-        description: "Your browser doesn't support speech recognition" 
-      });
     }
+    
+    // Load voices first
+    const loadVoices = () => {
+      // Attempt to load voices
+      window.speechSynthesis.getVoices();
+      
+      // Set up event listener for when voices are loaded
+      if (speechSynthesis.onvoiceschanged !== undefined) {
+        speechSynthesis.onvoiceschanged = setupSpeechRecognition;
+      } else {
+        setupSpeechRecognition();
+      }
+    };
+    
+    loadVoices();
     
     // Cleanup
     return () => {
@@ -401,6 +482,8 @@ function UserContext({ children }: { children: React.ReactNode }) {
           console.error("Error stopping recognition on cleanup:", error);
         }
       }
+      
+      stopSpeaking();
     };
   }, []);
 
@@ -492,6 +575,32 @@ function UserContext({ children }: { children: React.ReactNode }) {
     return percentage;
   };
 
+  // Prepare interview questions from PDF
+  async function prepareInterviewQuestionsFromPdf(): Promise<string[]> {
+    if (!pdfContent) {
+      toast.error("No PDF content", { description: "Please upload a PDF first" });
+      return [];
+    }
+    
+    try {
+      const questions = await prepareInterviewQuestions(pdfContent, "technical");
+      console.log("Interview questions prepared:", questions.length);
+      setInterviewQuestions(questions);
+      
+      toast.success("Interview questions prepared", {
+        description: "Questions have been generated from your PDF"
+      });
+      
+      return questions;
+    } catch (error) {
+      console.error("Error preparing interview questions:", error);
+      toast.error("Failed to prepare questions", { 
+        description: "Please try again or upload a different PDF" 
+      });
+      return [];
+    }
+  }
+
   // Interview functions
   async function startInterviewWithCamera(): Promise<void> {
     if (interviewQuestions.length === 0) {
@@ -528,33 +637,50 @@ function UserContext({ children }: { children: React.ReactNode }) {
 
   async function answerInterviewQuestion(answer: string): Promise<void> {
     // Evaluate the current answer
-    const feedback = await evaluateInterviewResponse(
-      currentInterviewQuestion,
-      answer,
-      pdfContent
-    );
-    
-    setInterviewFeedback(feedback);
-    
-    // Move to the next question if available
-    if (currentQuestionIndex < interviewQuestions.length - 1) {
-      setCurrentQuestionIndex(prevIndex => {
-        const newIndex = prevIndex + 1;
-        setCurrentInterviewQuestion(interviewQuestions[newIndex]);
-        
-        // Announce next question
-        setTimeout(() => {
-          speak(`Next question: ${interviewQuestions[newIndex]}`);
-        }, 2000);
-        
-        return newIndex;
-      });
-    } else {
-      // End of interview
-      const finalScore = await evaluateInterviewScore();
-      setInterviewScore(finalScore);
+    try {
+      const feedback = await evaluateInterviewResponse(
+        currentInterviewQuestion,
+        answer,
+        pdfContent
+      );
       
-      speak(`Thank you for completing the interview. Your overall performance score is ${finalScore}%.`);
+      setInterviewFeedback(feedback);
+      speak(feedback);
+      
+      // Move to the next question if available
+      if (currentQuestionIndex < interviewQuestions.length - 1) {
+        setTimeout(() => {
+          const newIndex = currentQuestionIndex + 1;
+          setCurrentQuestionIndex(newIndex);
+          setCurrentInterviewQuestion(interviewQuestions[newIndex]);
+          
+          // Announce next question
+          const nextQuestion = interviewQuestions[newIndex];
+          setTimeout(() => {
+            speak(`Next question: ${nextQuestion}`);
+          }, 2000);
+        }, 5000); // Give time for feedback to be spoken
+      } else {
+        // End of interview
+        const finalScore = await evaluateInterviewScore();
+        setInterviewScore(finalScore);
+        
+        speak(`Thank you for completing the interview. Your overall performance score is ${finalScore}%.`);
+      }
+    } catch (error) {
+      console.error("Error evaluating answer:", error);
+      speak("I'm sorry, there was an error evaluating your answer. Let's move to the next question.");
+      
+      // Still move to next question despite error
+      if (currentQuestionIndex < interviewQuestions.length - 1) {
+        const newIndex = currentQuestionIndex + 1;
+        setCurrentQuestionIndex(newIndex);
+        setCurrentInterviewQuestion(interviewQuestions[newIndex]);
+        speak(`Next question: ${interviewQuestions[newIndex]}`);
+      } else {
+        setInterviewScore(70); // Default score on error
+        speak("Thank you for completing the interview.");
+      }
     }
   }
 
@@ -615,7 +741,11 @@ function UserContext({ children }: { children: React.ReactNode }) {
     videoRef, 
     inputText, 
     setInputText, 
-    handleSubmitText 
+    handleSubmitText,
+    prepareInterviewQuestionsFromPdf,
+    setInterviewQuestions, 
+    recognizedSpeech,
+    setRecognizedSpeech
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
