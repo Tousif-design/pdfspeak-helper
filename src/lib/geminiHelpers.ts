@@ -345,3 +345,39 @@ export async function getNextInterviewQuestion(
     throw new Error("Interview question generation failed");
   }
 }
+
+/**
+ * Automatically generates a response to be used in a mock interview
+ * where the AI is role-playing as the candidate
+ */
+export async function generateMockInterviewResponse(question: string, pdfContent: string): Promise<string> {
+  try {
+    console.log("Generating mock interview response for:", question);
+    
+    const prompt = `
+      You are a job candidate being interviewed. Answer the following interview question 
+      based on the provided resume/CV content. The response should sound natural and conversational,
+      as if a real person is speaking in an interview.
+      
+      Resume/CV Content:
+      ${pdfContent.slice(0, 20000)}
+      
+      Interview Question: ${question}
+      
+      Respond as the candidate would in a real interview, highlighting relevant experiences and skills
+      from the resume while keeping a conversational tone. The answer should be 3-5 sentences long.
+      
+      Include minor verbal hesitations or filler words occasionally to make it sound more natural.
+    `;
+    
+    const response = await runQuery(prompt, {
+      temperature: 0.8, // Higher temperature for more natural responses
+      maxOutputTokens: 500,
+    });
+    
+    return response.trim();
+  } catch (error) {
+    console.error("Error generating mock interview response:", error);
+    return "I'm sorry, I'm having trouble coming up with a response at the moment.";
+  }
+}
