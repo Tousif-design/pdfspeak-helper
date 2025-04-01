@@ -1,14 +1,14 @@
 
-import React, { useContext, useState } from "react";
+import React, { useContext, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { DataContext } from "../context/UserContext";
-import { FileText, Download, Settings, Loader2 } from "lucide-react";
+import { FileText, Download, Settings, Loader2, CheckCircle, XCircle } from "lucide-react";
 import { generateMockTest } from "../lib/geminiHelpers";
 import { generatePdf, downloadBlob } from "../lib/pdfUtils";
 import { toast } from "sonner";
 
 const MockTestGenerator = () => {
-  const { pdfContent, pdfName, mockTest } = useContext(DataContext);
+  const { pdfContent, pdfName, mockTest, mockTestAnswers, handleTestSubmit } = useContext(DataContext);
   
   const [generating, setGenerating] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -17,6 +17,96 @@ const MockTestGenerator = () => {
     questions: 10,
     difficulty: "medium"
   });
+  
+  const [showResults, setShowResults] = useState(false);
+  const [userAnswers, setUserAnswers] = useState([]);
+  const [score, setScore] = useState(null);
+  const [testQuestions, setTestQuestions] = useState([]);
+  
+  // Parse test questions when mockTest changes
+  useEffect(() => {
+    if (mockTest) {
+      const questions = parseQuestions(mockTest);
+      setTestQuestions(questions);
+      setUserAnswers(Array(questions.length).fill(""));
+      setShowResults(false);
+      setScore(null);
+    }
+  }, [mockTest]);
+  
+  // Function to parse questions from test text
+  const parseQuestions = (testText) => {
+    const questions = [];
+    const lines = testText.split('\n');
+    
+    let currentQuestion = null;
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      // Skip empty lines
+      if (!line) continue;
+      
+      // Look for question numbers (e.g., "1.", "2.", etc.)
+      const questionMatch = line.match(/^(\d+)[\.\)](.+)/);
+      
+      if (questionMatch && !line.includes('ANSWERS')) {
+        // Save previous question if exists
+        if (currentQuestion) {
+          questions.push(currentQuestion);
+        }
+        
+        // Start new question
+        currentQuestion = {
+          id: questions.length,
+          text: questionMatch[2].trim(),
+          options: [],
+          type: 'text' // Default to text, will update if we find options
+        };
+        
+        // Look ahead for options (A, B, C, D)
+        let j = i + 1;
+        while (j < lines.length && j < i + 10) {
+          const optionLine = lines[j].trim();
+          const optionMatch = optionLine.match(/^([A-D])[\.\)](.+)/);
+          
+          if (optionMatch) {
+            if (currentQuestion.options.length === 0) {
+              currentQuestion.type = 'multiple';
+            }
+            
+            currentQuestion.options.push({
+              label: optionMatch[1],
+              text: optionMatch[2].trim()
+            });
+          } else if (currentQuestion.options.length > 0 && optionLine && !optionLine.match(/^\d+[\.\)]/)) {
+            // This is probably part of the last option
+            const lastOption = currentQuestion.options[currentQuestion.options.length - 1];
+            lastOption.text += ' ' + optionLine;
+          } else if (optionLine.match(/^\d+[\.\)]/)) {
+            // This is a new question, stop looking for options
+            break;
+          }
+          
+          j++;
+        }
+      }
+    }
+    
+    // Add the last question
+    if (currentQuestion) {
+      questions.push(currentQuestion);
+    }
+    
+    return questions;
+  };
+  
+  // Handle user answer change
+  const handleAnswerChange = (questionId, value) => {
+    const newAnswers = [...userAnswers];
+    newAnswers[questionId] = value;
+    setUserAnswers(newAnswers);
+  };
   
   // Generate a new mock test
   const handleGenerateTest = async () => {
@@ -50,6 +140,13 @@ const MockTestGenerator = () => {
     }
   };
   
+  // Submit test for scoring
+  const handleSubmit = () => {
+    const testScore = handleTestSubmit(userAnswers);
+    setScore(testScore);
+    setShowResults(true);
+  };
+  
   // Download test as PDF
   const handleDownloadTest = async () => {
     if (!mockTest) return;
@@ -70,21 +167,6 @@ const MockTestGenerator = () => {
     } finally {
       setDownloading(false);
     }
-  };
-  
-  // Format and clean up text for display
-  const formatText = (text) => {
-    if (!text) return "";
-    
-    return text
-      .replace(/\n{3,}/g, "\n\n")
-      .split("\n")
-      .map((line, i) => (
-        <React.Fragment key={i}>
-          {line}
-          <br />
-        </React.Fragment>
-      ));
   };
   
   return (
@@ -109,24 +191,41 @@ const MockTestGenerator = () => {
             </div>
           </div>
           
-          {mockTest && (
-            <button
-              onClick={handleDownloadTest}
-              disabled={downloading || !mockTest}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"
-            >
-              {downloading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Generating PDF...</span>
-                </>
-              ) : (
-                <>
-                  <Download className="w-4 h-4" />
-                  <span>Download Test</span>
-                </>
-              )}
-            </button>
+          {mockTest && !showResults && (
+            <div className="flex gap-2">
+              <button
+                onClick={handleSubmit}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"
+              >
+                <CheckCircle className="w-4 h-4" />
+                <span>Submit Test</span>
+              </button>
+              
+              <button
+                onClick={handleDownloadTest}
+                disabled={downloading}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary text-white hover:bg-secondary/90 transition-colors"
+              >
+                {downloading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Generating PDF...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" />
+                    <span>Download</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+          
+          {mockTest && showResults && (
+            <div className="bg-primary/10 px-4 py-2 rounded-lg">
+              <span className="font-medium">Your Score: </span>
+              <span className="text-lg font-bold text-primary">{score}%</span>
+            </div>
           )}
         </div>
         
@@ -205,9 +304,113 @@ const MockTestGenerator = () => {
           )}
           
           {/* Test display */}
-          <div className={mockTest ? "prose prose-lg max-w-none" : ""}>
-            {mockTest ? (
-              formatText(mockTest)
+          <div className="prose prose-lg max-w-none">
+            {mockTest && testQuestions.length > 0 ? (
+              <div>
+                <h2 className="text-xl font-bold mb-6">Mock Test</h2>
+                
+                {showResults && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+                    <h3 className="text-lg font-medium text-green-800 mb-2">Test Results</h3>
+                    <p className="text-green-700">
+                      You answered <span className="font-bold">{score}%</span> of the questions correctly.
+                    </p>
+                  </div>
+                )}
+                
+                <div className="space-y-6">
+                  {testQuestions.map((question, idx) => (
+                    <div 
+                      key={idx} 
+                      className={`glass-card p-4 rounded-lg ${
+                        showResults 
+                          ? userAnswers[idx] === mockTestAnswers[idx]
+                            ? "bg-green-50 border border-green-200" 
+                            : "bg-red-50 border border-red-200"
+                          : "bg-white/70"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <span className="flex-shrink-0 w-7 h-7 bg-primary/10 rounded-full flex items-center justify-center text-primary font-medium">
+                          {idx + 1}
+                        </span>
+                        <div className="flex-1">
+                          <p className="font-medium mb-3">{question.text}</p>
+                          
+                          {question.type === 'multiple' && (
+                            <div className="space-y-2 ml-1">
+                              {question.options.map((option, optIdx) => (
+                                <label 
+                                  key={optIdx} 
+                                  className={`flex items-center gap-2 p-2 rounded-md ${
+                                    showResults 
+                                      ? option.label === mockTestAnswers[idx]
+                                        ? "bg-green-100 text-green-800" 
+                                        : userAnswers[idx] === option.label && option.label !== mockTestAnswers[idx]
+                                          ? "bg-red-100 text-red-800"
+                                          : ""
+                                      : "hover:bg-gray-100"
+                                  }`}
+                                >
+                                  <input 
+                                    type="radio" 
+                                    name={`question-${idx}`} 
+                                    value={option.label}
+                                    checked={userAnswers[idx] === option.label}
+                                    onChange={() => handleAnswerChange(idx, option.label)}
+                                    disabled={showResults}
+                                    className="w-4 h-4 text-primary"
+                                  />
+                                  <span className="flex-1">{option.label}. {option.text}</span>
+                                  
+                                  {showResults && option.label === mockTestAnswers[idx] && (
+                                    <CheckCircle className="w-4 h-4 text-green-600" />
+                                  )}
+                                  
+                                  {showResults && userAnswers[idx] === option.label && option.label !== mockTestAnswers[idx] && (
+                                    <XCircle className="w-4 h-4 text-red-600" />
+                                  )}
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                          
+                          {question.type === 'text' && (
+                            <div className="mt-2">
+                              <textarea 
+                                value={userAnswers[idx] || ''}
+                                onChange={(e) => handleAnswerChange(idx, e.target.value)}
+                                disabled={showResults}
+                                placeholder="Type your answer here..."
+                                className="w-full p-3 border border-gray-200 rounded-md h-24"
+                              ></textarea>
+                              
+                              {showResults && (
+                                <div className="mt-3 p-3 bg-blue-50 rounded-md">
+                                  <p className="text-sm font-medium text-blue-800">Correct Answer:</p>
+                                  <p className="text-blue-700">{mockTestAnswers[idx]}</p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                
+                {!showResults && (
+                  <div className="mt-8 flex justify-center">
+                    <button
+                      onClick={handleSubmit}
+                      className="px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2"
+                    >
+                      <CheckCircle className="w-5 h-5" />
+                      <span>Submit Test</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 {generating ? (

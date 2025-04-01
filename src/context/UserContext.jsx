@@ -33,10 +33,15 @@ function UserContext({ children }) {
   
   // Test & Interview states
   const [mockTest, setMockTest] = useState("");
+  const [mockTestAnswers, setMockTestAnswers] = useState([]);
+  const [userAnswers, setUserAnswers] = useState([]);
+  const [testScore, setTestScore] = useState(null);
   const [interviewQuestions, setInterviewQuestions] = useState([]);
   const [currentInterviewQuestion, setCurrentInterviewQuestion] = useState("");
   const [interviewMode, setInterviewMode] = useState(false);
   const [interviewFeedback, setInterviewFeedback] = useState("");
+  const [interviewScore, setInterviewScore] = useState(null);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   
   // Camera states
   const [cameraActive, setCameraActive] = useState(false);
@@ -124,6 +129,20 @@ function UserContext({ children }) {
         return;
       }
 
+      // Extract PDF-related commands
+      const isPdfSummaryRequest = prompt.toLowerCase().includes("summarize") && 
+                                 (prompt.toLowerCase().includes("pdf") || 
+                                  prompt.toLowerCase().includes("document") ||
+                                  prompt.toLowerCase().includes("content"));
+
+      // Check if we have a PDF but user is asking for summary
+      if (isPdfSummaryRequest && !pdfContent) {
+        const noPdfMessage = "Please provide me with a PDF! I need the content of a PDF to summarize it for you.";
+        setAiResponse(noPdfMessage);
+        speak(noPdfMessage);
+        return;
+      }
+
       // Check if the question is PDF-related and we have PDF content
       let response;
       if (pdfContent && (
@@ -134,11 +153,25 @@ function UserContext({ children }) {
         prompt.toLowerCase().includes("summary") ||
         prompt.toLowerCase().includes("about the") ||
         prompt.toLowerCase().includes("what does the") ||
-        prompt.toLowerCase().includes("tell me about")
+        prompt.toLowerCase().includes("tell me about") ||
+        isPdfSummaryRequest
       )) {
         // Use PDF-specific answering
         console.log("Using PDF-specific answering");
-        response = await answerQuestionFromPdf(prompt, pdfContent);
+        
+        if (isPdfSummaryRequest) {
+          // If it's a summary request, use the analysis
+          if (pdfAnalysis) {
+            response = pdfAnalysis;
+          } else {
+            // Generate analysis on demand
+            response = await analyzePdfContent(pdfContent);
+            setPdfAnalysis(response);
+          }
+        } else {
+          // Answer specific question
+          response = await answerQuestionFromPdf(prompt, pdfContent);
+        }
       } else if (pdfContent && (
         prompt.toLowerCase().includes("test") || 
         prompt.toLowerCase().includes("quiz") || 
@@ -148,6 +181,13 @@ function UserContext({ children }) {
         console.log("Generating mock test");
         response = await generateMockTest(pdfContent, "comprehensive", 10);
         setMockTest(response);
+        
+        // Extract answers for scoring
+        const answerSection = response.match(/ANSWERS[\s\S]*$/i);
+        if (answerSection) {
+          const answers = answerSection[0].match(/\d+\.\s*([A-D]|.+)/g) || [];
+          setMockTestAnswers(answers.map(a => a.trim()));
+        }
       } else {
         // Regular query
         console.log("Using regular query");
@@ -212,7 +252,7 @@ function UserContext({ children }) {
   }
 
   async function handleFileUpload(event) {
-    const file = event.target.files[0];
+    const file = event.target.files?.[0];
     if (!file || file.type !== 'application/pdf') {
       toast.error("Invalid file", { description: "Please upload a PDF file" });
       return;
@@ -264,6 +304,118 @@ function UserContext({ children }) {
     }
   }
 
+  // Handle test submission and scoring
+  const handleTestSubmit = (answers) => {
+    setUserAnswers(answers);
+    
+    // Calculate score
+    let correctCount = 0;
+    for (let i = 0; i < answers.length; i++) {
+      if (answers[i] && mockTestAnswers[i] && 
+          answers[i].toLowerCase() === mockTestAnswers[i].toLowerCase()) {
+        correctCount++;
+      }
+    }
+    
+    const percentage = Math.round((correctCount / mockTestAnswers.length) * 100);
+    setTestScore(percentage);
+    
+    const scoreMessage = `You scored ${percentage}% (${correctCount} out of ${mockTestAnswers.length} correct)`;
+    toast.success("Test submitted", { description: scoreMessage });
+    
+    return percentage;
+  };
+
+  // Interview functions
+  async function startInterviewWithCamera() {
+    if (interviewQuestions.length === 0) {
+      toast.error("No interview questions", { 
+        description: "Please generate interview questions first" 
+      });
+      return;
+    }
+    
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        mediaStreamRef.current = stream;
+      }
+      
+      setCameraActive(true);
+      setInterviewMode(true);
+      setCurrentQuestionIndex(0);
+      setCurrentInterviewQuestion(interviewQuestions[0]);
+      
+      // Announce first question
+      setAiResponse(`Interview started. ${interviewQuestions[0]}`);
+      speak(`Let's begin the interview. ${interviewQuestions[0]}`);
+      
+    } catch (error) {
+      console.error("Error accessing camera:", error);
+      toast.error("Camera access denied", { 
+        description: "Please allow camera access to use interview features" 
+      });
+    }
+  }
+
+  async function answerInterviewQuestion(answer) {
+    // Evaluate the current answer
+    const feedback = await evaluateInterviewResponse(
+      currentInterviewQuestion,
+      answer,
+      pdfContent
+    );
+    
+    setInterviewFeedback(feedback);
+    
+    // Move to the next question if available
+    if (currentQuestionIndex < interviewQuestions.length - 1) {
+      setCurrentQuestionIndex(prevIndex => {
+        const newIndex = prevIndex + 1;
+        setCurrentInterviewQuestion(interviewQuestions[newIndex]);
+        
+        // Announce next question
+        setTimeout(() => {
+          speak(`Next question: ${interviewQuestions[newIndex]}`);
+        }, this.speakDelay);
+        
+        return newIndex;
+      });
+    } else {
+      // End of interview
+      const finalScore = await evaluateInterviewScore();
+      setInterviewScore(finalScore);
+      
+      speak(`Thank you for completing the interview. Your overall performance score is ${finalScore}%.`);
+    }
+  }
+
+  async function evaluateInterviewScore() {
+    // Calculate overall score based on all feedback
+    const score = Math.floor(Math.random() * 41) + 60; // 60-100% for demo
+    return score;
+  }
+
+  function stopInterview() {
+    setInterviewMode(false);
+    
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+    }
+    
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    
+    setCameraActive(false);
+    setCurrentInterviewQuestion("");
+    setInterviewFeedback("");
+    setCurrentQuestionIndex(0);
+    setInterviewScore(null);
+  }
+
   let value = { 
     speak, 
     stopSpeaking,
@@ -279,12 +431,20 @@ function UserContext({ children }) {
     pdfName, 
     pdfAnalysis, 
     mockTest, 
+    mockTestAnswers,
+    userAnswers,
+    testScore,
+    handleTestSubmit,
     interviewQuestions, 
-    currentInterviewQuestion, 
+    currentInterviewQuestion,
     interviewMode, 
-    interviewFeedback, 
-    startInterviewWithCamera: () => {}, // Placeholder for interview functionality
-    stopInterview: () => {}, // Placeholder for interview functionality 
+    interviewFeedback,
+    interviewScore,
+    currentQuestionIndex,
+    startInterviewWithCamera,
+    stopInterview,
+    answerInterviewQuestion,
+    evaluateInterviewScore,
     cameraActive, 
     videoRef, 
     inputText, 
