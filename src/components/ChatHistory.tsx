@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { Bot, User, Trash2 } from 'lucide-react';
 
 const ChatHistory = () => {
-  const { chatHistory, setChatHistory } = useContext(DataContext);
+  const { chatHistory = [], setChatHistory } = useContext(DataContext);
 
   const clearHistory = () => {
     setChatHistory([]);
