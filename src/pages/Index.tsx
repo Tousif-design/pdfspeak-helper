@@ -162,7 +162,7 @@ const Index = () => {
               {activeTab === "chat" && (
                 <div className="max-w-4xl mx-auto">
                   {/* Chat history button */}
-                  {chatHistory && chatHistory.length > 0 && (
+                  {Array.isArray(chatHistory) && chatHistory.length > 0 && (
                     <div className="flex justify-end mb-4">
                       <button
                         onClick={() => setShowChatHistory(!showChatHistory)}

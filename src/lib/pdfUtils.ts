@@ -19,15 +19,27 @@ export async function extractTextFromPdf(file: File): Promise<string> {
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const textContent = await page.getTextContent();
-      const pageText = textContent.items.map((item: any) => item.str).join(' ');
+      const pageText = textContent.items
+        .map((item: any) => (item.str || "").trim())
+        .join(' ');
       fullText += pageText + '\n\n';
+    }
+    
+    if (!fullText.trim()) {
+      throw new Error("No text could be extracted from this PDF. It might be an image-based PDF or empty.");
     }
     
     return fullText;
   } catch (error) {
     console.error("Error extracting text from PDF:", error);
-    toast.error("Failed to process PDF. Please try again.");
-    throw new Error("PDF extraction failed");
+    let errorMessage = "Failed to process PDF. Please try again with a different file.";
+    
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    }
+    
+    toast.error(errorMessage);
+    throw new Error(errorMessage);
   }
 }
 

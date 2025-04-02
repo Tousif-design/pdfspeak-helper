@@ -14,6 +14,7 @@ import {
   FileDigit
 } from "lucide-react";
 import { Document, Page, pdfjs } from 'react-pdf';
+import { toast } from "sonner";
 
 // Initialize PDF.js worker
 const pdfjsWorker = import('pdfjs-dist/build/pdf.worker.entry');
