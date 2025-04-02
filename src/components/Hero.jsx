@@ -1,10 +1,17 @@
 
 import React, { useContext } from "react";
 import { motion } from "framer-motion";
-import { DataContext } from "../context/UserContext";
+import { DataContext } from "../context/UserContext.tsx"; // Updated import to use TypeScript version
 import { Mic, MicOff, Upload, Bot, Volume2 } from "lucide-react";
 
 const Hero = () => {
+  const context = useContext(DataContext);
+  
+  // Add a check for undefined context
+  if (!context) {
+    return <div className="flex items-center justify-center min-h-[400px]">Loading...</div>;
+  }
+  
   const { 
     toggleRecognition, 
     isListening, 
@@ -15,7 +22,7 @@ const Hero = () => {
     inputText,
     setInputText,
     handleSubmitText
-  } = useContext(DataContext);
+  } = context;
 
   return (
     <section className="relative overflow-hidden bg-gradient-to-b from-background to-secondary/30 min-h-[400px] flex flex-col items-center justify-center px-4 py-16 sm:py-24">
