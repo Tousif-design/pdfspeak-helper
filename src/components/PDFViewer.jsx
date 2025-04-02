@@ -1,7 +1,6 @@
-
 import React, { useContext, useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { DataContext } from "../context/UserContext";
+import { DataContext } from "../context/UserContext.tsx";
 import { 
   FileText, 
   Search, 
@@ -14,13 +13,24 @@ import {
   FileDigit
 } from "lucide-react";
 import { Document, Page, pdfjs } from 'react-pdf';
+import { toast } from "sonner";
 
 // Initialize PDF.js worker
 const pdfjsWorker = import('pdfjs-dist/build/pdf.worker.entry');
 pdfjs.GlobalWorkerOptions.workerUrl = pdfjsWorker;
 
 const PDFViewer = () => {
-  const { pdfContent, pdfName, pdfAnalysis } = useContext(DataContext);
+  const context = useContext(DataContext);
+  
+  // Add a check for undefined context
+  if (!context) {
+    return <div className="flex items-center justify-center h-[600px]">
+      <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin mb-4"></div>
+      <p className="ml-3">Loading PDF viewer...</p>
+    </div>;
+  }
+  
+  const { pdfContent, pdfName, pdfAnalysis } = context;
   
   const [numPages, setNumPages] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
