@@ -5,6 +5,13 @@ import { DataContext } from "../context/UserContext";
 import { motion } from "framer-motion";
 
 const ChatInput = () => {
+  const context = useContext(DataContext);
+  
+  // Add a check for undefined context
+  if (!context) {
+    return <div className="flex items-center justify-center h-16">Loading...</div>;
+  }
+
   const { 
     toggleRecognition, 
     isListening, 
@@ -15,7 +22,7 @@ const ChatInput = () => {
     handleSubmitText,
     handleFileUpload,
     isProcessingPdf
-  } = useContext(DataContext);
+  } = context;
 
   return (
     <motion.div 
