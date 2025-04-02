@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { Bot, User, Trash2 } from 'lucide-react';
 
 const ChatHistory = () => {
-  const { chatHistory = [], setChatHistory } = useContext(DataContext);
+  const { chatHistory, setChatHistory } = useContext(DataContext);
 
   const clearHistory = () => {
     setChatHistory([]);
@@ -35,14 +35,13 @@ const ChatHistory = () => {
 
   // Truncate long messages for the history view
   const truncateMessage = (message: string, maxLength = 100) => {
-    if (!message) return "";
     if (message.length <= maxLength) return message;
     return message.substring(0, maxLength) + '...';
   };
 
   return (
     <div className="h-full flex flex-col">
-      {!chatHistory || chatHistory.length === 0 ? (
+      {chatHistory.length === 0 ? (
         <div className="flex items-center justify-center h-full">
           <p className="text-muted-foreground text-sm">No chat history yet</p>
         </div>
