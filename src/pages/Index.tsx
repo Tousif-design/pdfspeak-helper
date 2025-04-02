@@ -1,6 +1,6 @@
-import React, { useContext, useState, useEffect } from "react";
+import React, { useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { DataContext } from "../context/UserContext";
+import { DataContext } from "../context/UserContext.tsx";
 import Hero from "../components/Hero";
 import PDFViewer from "../components/PDFViewer";
 import MockTestGenerator from "../components/MockTestGenerator";
@@ -9,6 +9,12 @@ import ChatInput from "../components/ChatInput";
 import { FileText, BookOpen, Video, Bot, Upload, AlertCircle } from "lucide-react";
 
 const Index = () => {
+  const context = useContext(DataContext);
+  
+  if (!context) {
+    return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
+  }
+  
   const { 
     userQuery, 
     aiResponse, 
@@ -19,11 +25,10 @@ const Index = () => {
     mockTest,
     isPdfAnalyzed,
     recognizedSpeech
-  } = useContext(DataContext);
+  } = context;
   
-  const [activeTab, setActiveTab] = useState("chat");
+  const [activeTab, setActiveTab] = React.useState("chat");
   
-  // Tab configuration
   const tabs = [
     { id: "chat", label: "AI Assistant", icon: <Bot className="w-4 h-4" /> },
     { id: "pdf", label: "PDF Analysis", icon: <FileText className="w-4 h-4" />, disabled: !pdfContent },
@@ -31,37 +36,29 @@ const Index = () => {
     { id: "interview", label: "Interview", icon: <Video className="w-4 h-4" />, disabled: !pdfContent }
   ];
 
-  // Improved notification for PDF content
   const showPdfNotification = activeTab !== "chat" && !pdfContent;
   
-  // Auto-switch to test tab when test is generated
   React.useEffect(() => {
     if (mockTest && activeTab === "chat") {
       setActiveTab("test");
     }
-  }, [mockTest]);
+  }, [mockTest, activeTab]);
 
-  // Dispatch custom events when speech recognition is active
-  useEffect(() => {
+  React.useEffect(() => {
     if (recognizedSpeech) {
-      // Create a custom event with the recognized speech
       const speechEvent = new CustomEvent('speechRecognition', {
         detail: { transcript: recognizedSpeech }
       });
       
-      // Dispatch the event
       window.dispatchEvent(speechEvent);
     }
   }, [recognizedSpeech]);
 
   return (
     <main className="min-h-screen flex flex-col bg-gradient-to-b from-background via-background to-secondary/20">
-      {/* Hero section */}
       <Hero />
       
-      {/* Chat display */}
       <div className="container px-4 py-8">
-        {/* Tab navigation */}
         <div className="flex justify-center mb-8">
           <div className="glass-card flex rounded-full overflow-hidden p-1 shadow-md">
             {tabs.map((tab) => (
@@ -82,7 +79,6 @@ const Index = () => {
           </div>
         </div>
         
-        {/* PDF notification */}
         {showPdfNotification && (
           <motion.div 
             initial={{ opacity: 0, y: -10 }}
@@ -103,7 +99,6 @@ const Index = () => {
           </motion.div>
         )}
         
-        {/* Tab content */}
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
@@ -111,11 +106,10 @@ const Index = () => {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3 }}
-            className="mb-20" // Add space for the input at bottom
+            className="mb-20"
           >
             {activeTab === "chat" && (
               <div className="max-w-4xl mx-auto">
-                {/* Conversation history */}
                 {(userQuery || aiResponse) && (
                   <div className="mb-8 space-y-4">
                     {userQuery && (
@@ -164,7 +158,6 @@ const Index = () => {
                   </div>
                 )}
                 
-                {/* Empty state or PDF upload */}
                 {!userQuery && !aiResponse && (
                   <div className="text-center py-12">
                     <motion.div
@@ -261,7 +254,6 @@ const Index = () => {
           </motion.div>
         </AnimatePresence>
         
-        {/* Chat input component - only show on chat tab */}
         {activeTab === "chat" && <ChatInput />}
       </div>
     </main>
