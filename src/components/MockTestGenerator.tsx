@@ -1,34 +1,148 @@
 
-import React, { useContext, useState, useEffect } from "react";
+import React, { useState, useEffect, useContext } from "react";
 import { motion } from "framer-motion";
 import { DataContext } from "../context/UserContext";
-import { BookOpen, AlertTriangle, Check, X, Clock, Award, ChevronRight, RotateCcw, Save, List, FileText } from "lucide-react";
-import { generateMockTest } from "../lib/geminiHelpers";
+import { 
+  BookOpen, 
+  Check, 
+  AlertCircle, 
+  Loader2,
+  FileText,
+  ListChecks,
+  FileQuestion,
+  HelpCircle,
+  Settings,
+  CheckCircle2,
+  RefreshCw,
+  Award
+} from "lucide-react";
 import { toast } from "sonner";
-import { downloadBlob, generatePdf } from "../lib/pdfUtils";
+import { generateMockTest } from "../lib/geminiHelpers";
+
+type QuestionFormat = "mcq" | "shortAnswer" | "mixed";
+type TestDifficulty = "easy" | "medium" | "hard" | "comprehensive";
+
+interface MCQQuestion {
+  id: number;
+  question: string;
+  options: string[];
+  userAnswer: string;
+  correctAnswer: string;
+}
+
+interface ShortAnswerQuestion {
+  id: number;
+  question: string;
+  userAnswer: string;
+  modelAnswer: string;
+}
+
+interface TestSettings {
+  numberOfQuestions: number;
+  format: QuestionFormat;
+  difficulty: TestDifficulty;
+  timeLimit: number;
+}
 
 const MockTestGenerator = () => {
-  const { pdfContent, mockTest, mockTestAnswers, handleTestSubmit, testScore } = useContext(DataContext);
+  const { pdfContent, mockTest, mockTestAnswers, handleTestSubmit } = useContext(DataContext);
   
-  const [loading, setLoading] = useState(false);
-  const [testStarted, setTestStarted] = useState(false);
-  const [timeRemaining, setTimeRemaining] = useState(30 * 60); // 30 minutes in seconds
-  const [selectedAnswers, setSelectedAnswers] = useState<string[]>([]);
-  const [testQuestions, setTestQuestions] = useState<any[]>([]);
-  const [testTitle, setTestTitle] = useState("");
-  const [showAnswers, setShowAnswers] = useState(false);
-  const [testType, setTestType] = useState("comprehensive");
-  const [questionFormat, setQuestionFormat] = useState("mixed");
-  const [questionsCount, setQuestionsCount] = useState(10);
-
-  // Format time remaining
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [testCompleted, setTestCompleted] = useState(false);
+  const [testScore, setTestScore] = useState<number | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [testInProgress, setTestInProgress] = useState(false);
+  const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
+  
+  // Test settings
+  const [testSettings, setTestSettings] = useState<TestSettings>({
+    numberOfQuestions: 10,
+    format: "mixed",
+    difficulty: "comprehensive",
+    timeLimit: 15 // minutes
+  });
+  
+  // Parsed questions
+  const [mcqQuestions, setMcqQuestions] = useState<MCQQuestion[]>([]);
+  const [shortAnswerQuestions, setShortAnswerQuestions] = useState<ShortAnswerQuestion[]>([]);
+  
+  // Parse mock test into structured format
+  useEffect(() => {
+    if (mockTest) {
+      parseTest(mockTest);
+    }
+  }, [mockTest]);
+  
+  const parseTest = (testContent: string) => {
+    try {
+      // Extract MCQs
+      const mcqRegex = /(\d+)\.\s+(.*?)\s*\n\s*A\.\s+(.*?)\s*\n\s*B\.\s+(.*?)\s*\n\s*C\.\s+(.*?)\s*\n\s*D\.\s+(.*?)(?=\n\d+\.|\n\s*ANSWERS|$)/gs;
+      const mcqMatches = Array.from(testContent.matchAll(mcqRegex));
+      
+      const parsedMcqs: MCQQuestion[] = mcqMatches.map((match) => {
+        return {
+          id: parseInt(match[1]),
+          question: match[2].trim(),
+          options: [match[3].trim(), match[4].trim(), match[5].trim(), match[6].trim()],
+          userAnswer: "",
+          correctAnswer: ""
+        };
+      });
+      
+      // Extract short answer questions
+      const shortAnswerRegex = /(\d+)\.\s+\[Short Answer\]\s+(.*?)(?=\n\d+\.|\n\s*ANSWERS|$)/gs;
+      const shortAnswerMatches = Array.from(testContent.matchAll(shortAnswerRegex));
+      
+      const parsedShortAnswers: ShortAnswerQuestion[] = shortAnswerMatches.map((match) => {
+        return {
+          id: parseInt(match[1]),
+          question: match[2].trim(),
+          userAnswer: "",
+          modelAnswer: ""
+        };
+      });
+      
+      // Extract answers
+      const answerSection = testContent.match(/ANSWERS[\s\S]*$/i);
+      if (answerSection) {
+        const answerLines = answerSection[0].split("\n").filter(line => /^\d+\./.test(line));
+        
+        answerLines.forEach(line => {
+          const match = line.match(/^(\d+)\.\s*([A-D]|.+)/);
+          if (match) {
+            const questionId = parseInt(match[1]);
+            const answer = match[2].trim();
+            
+            // Find and update MCQ
+            const mcqQuestion = parsedMcqs.find(q => q.id === questionId);
+            if (mcqQuestion) {
+              mcqQuestion.correctAnswer = answer;
+            }
+            
+            // Find and update short answer
+            const shortAnswerQuestion = parsedShortAnswers.find(q => q.id === questionId);
+            if (shortAnswerQuestion) {
+              shortAnswerQuestion.modelAnswer = answer;
+            }
+          }
+        });
+      }
+      
+      setMcqQuestions(parsedMcqs);
+      setShortAnswerQuestions(parsedShortAnswers);
+      
+      // Set timer if not already set
+      if (!timeRemaining && testSettings.timeLimit > 0) {
+        setTimeRemaining(testSettings.timeLimit * 60);
+        setTestInProgress(true);
+      }
+      
+    } catch (error) {
+      console.error("Error parsing test:", error);
+      toast.error("Failed to parse test", { description: "Please try generating a new test" });
+    }
   };
-
-  // Generate test if not already generated
+  
   const handleGenerateTest = async () => {
     if (!pdfContent) {
       toast.error("No PDF content", { description: "Please upload a PDF first" });
@@ -36,544 +150,483 @@ const MockTestGenerator = () => {
     }
     
     try {
-      setLoading(true);
-      toast.info("Generating mock test", { description: "This may take a moment..." });
+      setIsGenerating(true);
+      setTestCompleted(false);
+      setTestScore(null);
+      setMcqQuestions([]);
+      setShortAnswerQuestions([]);
       
-      const generatedTest = await generateMockTest(pdfContent, testType, questionsCount, questionFormat);
+      const result = await generateMockTest(
+        pdfContent, 
+        testSettings.difficulty, 
+        testSettings.numberOfQuestions,
+        testSettings.format
+      );
       
-      // Parse test title
-      const titleMatch = generatedTest.match(/^#\s*(.*)/m) || generatedTest.match(/^([^\n]+)/);
-      setTestTitle(titleMatch ? titleMatch[1] : "Mock Test");
+      setIsGenerating(false);
+      parseTest(result);
       
-      // Parse questions
-      const questionsMatch = generatedTest.match(/\d+\.\s*(.*?)(?=\n\s*(?:\d+\.|ANSWERS))/gs);
-      if (questionsMatch) {
-        const parsedQuestions = questionsMatch.map(q => {
-          // Try to identify multiple choice options
-          const options = q.match(/([A-D])\.?\s*(.*?)(?=\n\s*(?:[A-D]\.|\d+\.)|\s*$)/gs);
-          
-          return {
-            question: q.split(/\n\s*[A-D]\./).shift()?.replace(/^\d+\.\s*/, '').trim() || "",
-            isMultipleChoice: !!options,
-            options: options ? options.map(opt => {
-              const match = opt.match(/([A-D])\.?\s*(.*)/s);
-              return match ? { 
-                letter: match[1], 
-                text: match[2].trim() 
-              } : null;
-            }).filter(Boolean) : [],
-            fullText: q.trim()
-          };
-        });
-        
-        setTestQuestions(parsedQuestions);
-      }
+      toast.success("Test generated", { 
+        description: `${testSettings.numberOfQuestions} questions have been created` 
+      });
       
-      toast.success("Test generated", { description: "Ready to start your mock test" });
     } catch (error) {
       console.error("Error generating test:", error);
-      toast.error("Failed to generate test", { description: error instanceof Error ? error.message : "Unknown error" });
-    } finally {
-      setLoading(false);
+      setIsGenerating(false);
+      toast.error("Failed to generate test", { 
+        description: "Please try again or upload a different PDF" 
+      });
     }
   };
-
-  // Start the test
-  const startTest = () => {
-    setTestStarted(true);
-    setSelectedAnswers(Array(testQuestions.length).fill(""));
-    setShowAnswers(false);
-    setTimeRemaining(30 * 60); // Reset timer to 30 minutes
-    
-    toast.success("Test started", { 
-      description: "You have 30 minutes to complete the test" 
-    });
+  
+  const handleAnswerChange = (id: number, answer: string, type: "mcq" | "shortAnswer") => {
+    if (type === "mcq") {
+      setMcqQuestions(prev => prev.map(q => 
+        q.id === id ? { ...q, userAnswer: answer } : q
+      ));
+    } else {
+      setShortAnswerQuestions(prev => prev.map(q => 
+        q.id === id ? { ...q, userAnswer: answer } : q
+      ));
+    }
   };
-
-  // Handle answer selection
-  const handleAnswerSelect = (questionIndex: number, answer: string) => {
-    const newAnswers = [...selectedAnswers];
-    newAnswers[questionIndex] = answer;
-    setSelectedAnswers(newAnswers);
-  };
-
-  // Submit test
+  
   const submitTest = () => {
-    const unansweredCount = selectedAnswers.filter(a => !a).length;
+    // Prepare answers array
+    const allAnswers: string[] = [];
     
-    if (unansweredCount > 0 && !showAnswers) {
-      toast.warning(`${unansweredCount} unanswered questions`, {
-        description: "Are you sure you want to submit? You can go back and complete your answers."
-      });
-      return;
-    }
+    // Add MCQ answers
+    mcqQuestions.forEach(q => {
+      allAnswers[q.id - 1] = q.userAnswer;
+    });
     
-    // Calculate score
-    const score = handleTestSubmit(selectedAnswers);
+    // Add short answer responses (these won't be auto-graded)
+    shortAnswerQuestions.forEach(q => {
+      allAnswers[q.id - 1] = q.userAnswer;
+    });
     
-    // Show answers after submission
-    setShowAnswers(true);
-    setTestStarted(false);
+    // Submit and get score
+    const score = handleTestSubmit(allAnswers);
+    setTestScore(score);
+    setTestCompleted(true);
+    setTestInProgress(false);
+    setTimeRemaining(null);
     
-    toast.success("Test submitted", {
-      description: `You scored ${score}% (${selectedAnswers.filter((a, i) => a === mockTestAnswers[i]).length} out of ${mockTestAnswers.length} correct)`
+    toast.success("Test submitted", { 
+      description: `Your score: ${score}%`
     });
   };
-
-  // Reset test
+  
   const resetTest = () => {
-    setSelectedAnswers(Array(testQuestions.length).fill(""));
-    setShowAnswers(false);
-    setTestStarted(false);
+    setTestCompleted(false);
+    setTestScore(null);
+    
+    // Reset answers
+    setMcqQuestions(prev => prev.map(q => ({ ...q, userAnswer: "" })));
+    setShortAnswerQuestions(prev => prev.map(q => ({ ...q, userAnswer: "" })));
+    
+    // Reset timer
+    setTimeRemaining(testSettings.timeLimit * 60);
+    setTestInProgress(true);
   };
-
-  // Export results as PDF
-  const exportResults = async () => {
-    try {
-      toast.info("Generating PDF", { description: "Please wait..." });
-      
-      let content = `${testTitle}\n\n`;
-      content += `Score: ${testScore}%\n\n`;
-      
-      testQuestions.forEach((q, index) => {
-        content += `Question ${index + 1}: ${q.question}\n`;
-        
-        if (q.isMultipleChoice) {
-          q.options.forEach((opt: any) => {
-            content += `${opt.letter}. ${opt.text}\n`;
-          });
-        }
-        
-        content += `\nYour answer: ${selectedAnswers[index]}\n`;
-        content += `Correct answer: ${mockTestAnswers[index]}\n\n`;
-      });
-      
-      const blob = await generatePdf(content, testTitle);
-      downloadBlob(blob, `${testTitle}.pdf`);
-      
-      toast.success("PDF exported", { description: "Your test results have been saved as a PDF" });
-    } catch (error) {
-      console.error("Error exporting results:", error);
-      toast.error("Failed to export results", { description: error instanceof Error ? error.message : "Unknown error" });
-    }
-  };
-
+  
   // Timer effect
   useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (testStarted && timeRemaining > 0) {
-      timer = setInterval(() => {
-        setTimeRemaining(prev => {
-          if (prev <= 1) {
-            clearInterval(timer);
+    if (!testInProgress || timeRemaining === null) return;
+    
+    const timer = setInterval(() => {
+      setTimeRemaining(prev => {
+        if (prev === null || prev <= 0) {
+          clearInterval(timer);
+          // Auto-submit when time runs out
+          if (testInProgress) {
+            toast.warning("Time's up!", { description: "Your test has been automatically submitted" });
             submitTest();
-            return 0;
           }
-          return prev - 1;
-        });
-      }, 1000);
-    }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
     
     return () => clearInterval(timer);
-  }, [testStarted, timeRemaining]);
-
-  // Initialize from existing mock test
-  useEffect(() => {
-    if (mockTest && testQuestions.length === 0 && !loading) {
-      handleGenerateTest();
-    }
-  }, [mockTest]);
-
+  }, [testInProgress, timeRemaining]);
+  
+  // Format time remaining
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+  
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
-      className="w-full max-w-4xl mx-auto mt-8 glass-card rounded-xl overflow-hidden"
+      className="w-full max-w-4xl mx-auto"
     >
-      <div className="flex flex-col h-full">
-        {/* Header */}
-        <div className="px-6 py-4 bg-background/70 border-b border-border flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-              <BookOpen className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <h3 className="font-medium text-lg">{testTitle || "Mock Test Generator"}</h3>
-              <p className="text-sm text-muted-foreground">
-                Test your knowledge based on the PDF content
-              </p>
-            </div>
+      {/* Header */}
+      <div className="bg-white/70 rounded-lg p-4 mb-6 flex flex-wrap items-center justify-between gap-4 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+            <BookOpen className="w-5 h-5 text-primary" />
           </div>
-          
-          {testStarted && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-100 text-amber-800 rounded-lg">
-              <Clock className="w-4 h-4" />
-              <span className="font-medium">{formatTime(timeRemaining)}</span>
-            </div>
-          )}
+          <div>
+            <h2 className="font-medium text-lg">Knowledge Assessment</h2>
+            <p className="text-sm text-muted-foreground">
+              Test your understanding of the PDF content
+            </p>
+          </div>
         </div>
         
-        {/* Content */}
-        <div className="p-6">
-          {!testQuestions.length ? (
-            <div className="text-center py-12">
-              {loading ? (
-                <div className="flex flex-col items-center">
-                  <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin mb-4"></div>
-                  <h3 className="text-xl font-medium mb-2">Generating Your Test</h3>
-                  <p className="text-muted-foreground max-w-md mx-auto">
-                    We're creating a comprehensive test based on your PDF content. This may take a moment...
-                  </p>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center">
-                  <BookOpen className="w-12 h-12 text-muted-foreground mb-4" />
-                  <h3 className="text-xl font-medium mb-2">Create a Mock Test</h3>
-                  <p className="text-muted-foreground max-w-md mx-auto mb-6">
-                    {pdfContent 
-                      ? "Generate a test based on your PDF to check your understanding"
-                      : "Please upload a PDF document first to generate a mock test"}
-                  </p>
-                  
-                  {pdfContent && (
-                    <div className="glass-card p-4 rounded-lg bg-white/50 max-w-md w-full">
-                      <h4 className="font-medium mb-3 text-primary">Test Settings</h4>
-                      
-                      <div className="space-y-4">
-                        <div>
-                          <label className="block text-sm mb-1.5">Test Type</label>
-                          <select 
-                            value={testType}
-                            onChange={(e) => setTestType(e.target.value)}
-                            className="glass-input w-full rounded-md px-3 py-1.5 bg-white"
-                          >
-                            <option value="basic">Basic</option>
-                            <option value="intermediate">Intermediate</option>
-                            <option value="comprehensive">Comprehensive</option>
-                            <option value="advanced">Advanced</option>
-                          </select>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm mb-1.5">Question Format</label>
-                          <select 
-                            value={questionFormat}
-                            onChange={(e) => setQuestionFormat(e.target.value)}
-                            className="glass-input w-full rounded-md px-3 py-1.5 bg-white"
-                          >
-                            <option value="mixed">Mixed (MCQ & Short Answer)</option>
-                            <option value="mcq">Multiple Choice Only</option>
-                            <option value="short_answer">Short Answer Only</option>
-                          </select>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {questionFormat === "mcq" 
-                              ? "Multiple choice questions with A, B, C, D options" 
-                              : questionFormat === "short_answer" 
-                                ? "Questions requiring typed answers"
-                                : "A mix of multiple choice and short answer questions"}
-                          </p>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm mb-1.5">Number of Questions</label>
-                          <select 
-                            value={questionsCount}
-                            onChange={(e) => setQuestionsCount(parseInt(e.target.value))}
-                            className="glass-input w-full rounded-md px-3 py-1.5 bg-white"
-                          >
-                            <option value="5">5 questions</option>
-                            <option value="10">10 questions</option>
-                            <option value="15">15 questions</option>
-                            <option value="20">20 questions</option>
-                          </select>
-                        </div>
-                      </div>
-                      
-                      <button
-                        onClick={handleGenerateTest}
-                        disabled={loading || !pdfContent}
-                        className="mt-4 w-full py-2 bg-primary text-white rounded-md disabled:opacity-50"
-                      >
-                        Generate Mock Test
-                      </button>
-                    </div>
-                  )}
+        <div className="flex flex-wrap items-center gap-2">
+          {!mockTest || testCompleted ? (
+            <>
+              <button
+                onClick={() => setShowSettings(!showSettings)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-secondary/50 text-secondary-foreground hover:bg-secondary/80 transition-colors"
+              >
+                <Settings className="w-4 h-4" />
+                <span>Settings</span>
+              </button>
+              
+              <button
+                onClick={handleGenerateTest}
+                disabled={isGenerating || !pdfContent}
+                className="flex items-center gap-1.5 px-4 py-1.5 text-sm rounded-md bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50"
+              >
+                {isGenerating ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Generating...</span>
+                  </>
+                ) : (
+                  <>
+                    <FileText className="w-4 h-4" />
+                    <span>{mockTest ? "New Test" : "Generate Test"}</span>
+                  </>
+                )}
+              </button>
+            </>
+          ) : (
+            <>
+              {timeRemaining !== null && (
+                <div className={`px-3 py-1.5 rounded-md text-sm flex items-center gap-1.5 ${
+                  timeRemaining < 60 ? "bg-red-100 text-red-800" : "bg-blue-100 text-blue-800"
+                }`}>
+                  <span className="font-mono">{formatTime(timeRemaining)}</span>
+                  {timeRemaining < 60 && " remaining"}
                 </div>
               )}
-            </div>
-          ) : !testStarted && !showAnswers ? (
-            <div className="max-w-2xl mx-auto">
-              <div className="glass-card p-5 rounded-lg bg-white/50 mb-6">
-                <h3 className="text-xl font-medium mb-3">{testTitle}</h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  This test contains {testQuestions.length} questions based on your PDF content. 
-                  You will have 30 minutes to complete the test.
-                </p>
-                
-                <div className="flex flex-col sm:flex-row gap-3 sm:items-center p-3 bg-primary/5 rounded-md text-sm mb-4">
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-primary" />
-                    <span>Duration: 30 minutes</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <BookOpen className="w-4 h-4 text-primary" />
-                    <span>Questions: {testQuestions.length}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <List className="w-4 h-4 text-primary" />
-                    <span>Format: {questionFormat === "mcq" ? "Multiple Choice" : questionFormat === "short_answer" ? "Short Answer" : "Mixed"}</span>
-                  </div>
-                </div>
-                
-                <div className="mb-4 p-4 bg-white rounded-lg border border-gray-100">
-                  <h4 className="font-medium text-primary mb-2">Sample Questions Preview:</h4>
-                  <div className="space-y-3">
-                    {testQuestions.slice(0, 2).map((q, idx) => (
-                      <div key={idx} className="p-2 bg-gray-50 rounded">
-                        <p className="font-medium text-sm">{idx+1}. {q.question}</p>
-                        {q.isMultipleChoice && (
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            {q.options.slice(0, 2).map((opt: any) => (
-                              <div key={opt.letter} className="ml-2">{opt.letter}. {opt.text.substring(0, 40)}...</div>
-                            ))}
-                            <div className="ml-2 italic">+ more options...</div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                    <div className="text-xs text-muted-foreground text-center">+ {testQuestions.length - 2} more questions</div>
-                  </div>
-                </div>
-                
-                <button
-                  onClick={startTest}
-                  className="w-full py-2.5 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
-                >
-                  Start Test
-                </button>
-              </div>
               
-              <div className="text-sm text-muted-foreground p-4 bg-secondary/5 rounded-lg">
-                <h4 className="font-medium text-secondary mb-2">Test Instructions</h4>
-                <ul className="space-y-1 list-disc pl-5">
-                  <li>Read each question carefully before answering</li>
-                  <li>For multiple choice questions, select the best answer</li>
-                  <li>For short answer questions, provide concise answers</li>
-                  <li>Your time will be displayed at the top of the screen</li>
-                  <li>The test will automatically submit when time runs out</li>
-                  <li>You can submit early if you finish before the time limit</li>
-                </ul>
-              </div>
-            </div>
-          ) : showAnswers ? (
-            <div className="max-w-3xl mx-auto">
-              <div className="glass-card p-5 rounded-lg bg-white/50 mb-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Award className="w-6 h-6 text-primary" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-medium">Test Results</h3>
-                    <p className="text-sm text-muted-foreground">
-                      You scored {testScore}% ({selectedAnswers.filter((a, i) => a === mockTestAnswers[i]).length} 
-                      out of {mockTestAnswers.length} correct)
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="flex flex-wrap gap-3 mt-4">
-                  <button
-                    onClick={resetTest}
-                    className="flex items-center gap-2 px-4 py-2 rounded-md bg-secondary text-white"
-                  >
-                    <RotateCcw size={16} />
-                    <span>Retake Test</span>
-                  </button>
-                  
-                  <button
-                    onClick={exportResults}
-                    className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-white"
-                  >
-                    <Save size={16} />
-                    <span>Export Results</span>
-                  </button>
-                </div>
-              </div>
-              
-              <div className="space-y-6">
-                {testQuestions.map((question, index) => {
-                  const isCorrect = selectedAnswers[index] === mockTestAnswers[index];
-                  
-                  return (
-                    <div 
-                      key={index}
-                      className={`glass-card p-4 rounded-lg ${
-                        isCorrect ? 'bg-green-50 border border-green-100' : 'bg-red-50 border border-red-100'
-                      }`}
-                    >
-                      <div className="flex items-start gap-3 mb-3">
-                        <div className={`w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${
-                          isCorrect ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
-                        }`}>
-                          {isCorrect ? <Check size={14} /> : <X size={14} />}
-                        </div>
-                        <div>
-                          <h4 className="font-medium text-gray-900">
-                            {index + 1}. {question.question}
-                          </h4>
-                          
-                          {question.isMultipleChoice && (
-                            <div className="mt-3 space-y-2">
-                              {question.options.map((opt: any) => (
-                                <div 
-                                  key={opt.letter}
-                                  className={`p-2 rounded ${
-                                    opt.letter === mockTestAnswers[index] 
-                                      ? 'bg-green-100 border border-green-200' 
-                                      : opt.letter === selectedAnswers[index] && selectedAnswers[index] !== mockTestAnswers[index]
-                                        ? 'bg-red-100 border border-red-200'
-                                        : 'bg-white/60'
-                                  }`}
-                                >
-                                  <label className="flex items-center gap-2">
-                                    <span className={`w-5 h-5 inline-flex items-center justify-center rounded-full border ${
-                                      opt.letter === mockTestAnswers[index] 
-                                        ? 'border-green-500 text-green-500' 
-                                        : opt.letter === selectedAnswers[index] 
-                                          ? 'border-red-500 text-red-500'
-                                          : 'border-gray-300'
-                                    }`}>
-                                      {opt.letter}
-                                    </span>
-                                    <span>{opt.text}</span>
-                                  </label>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          
-                          <div className="mt-3 text-sm">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">Your answer:</span>
-                              <span className={isCorrect ? 'text-green-600' : 'text-red-600'}>
-                                {selectedAnswers[index] || '(No answer)'}
-                              </span>
-                            </div>
-                            
-                            <div className="flex items-center gap-2 mt-1">
-                              <span className="font-medium">Correct answer:</span>
-                              <span className="text-green-600">{mockTestAnswers[index]}</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <div className="max-w-3xl mx-auto">
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                submitTest();
-              }}>
-                <div className="space-y-8 mb-8">
-                  {testQuestions.map((question, index) => (
-                    <div 
-                      key={index} 
-                      id={`question-${index}`}
-                      className="glass-card p-4 rounded-lg bg-white/80"
-                    >
-                      <h4 className="font-medium text-lg mb-3">
-                        {index + 1}. {question.question}
-                      </h4>
-                      
-                      {question.isMultipleChoice ? (
-                        <div className="space-y-2 ml-1">
-                          {question.options.map((opt: any) => (
-                            <div key={opt.letter} className="p-2 hover:bg-primary/5 rounded transition-colors">
-                              <label className="flex items-center gap-2 cursor-pointer">
-                                <input 
-                                  type="radio"
-                                  name={`question-${index}`}
-                                  value={opt.letter}
-                                  checked={selectedAnswers[index] === opt.letter}
-                                  onChange={() => handleAnswerSelect(index, opt.letter)}
-                                  className="w-4 h-4 text-primary"
-                                />
-                                <span className="w-5 h-5 inline-flex items-center justify-center rounded-full border border-gray-300">
-                                  {opt.letter}
-                                </span>
-                                <span>{opt.text}</span>
-                              </label>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="mt-2">
-                          <textarea
-                            placeholder="Type your answer here..."
-                            value={selectedAnswers[index] || ''}
-                            onChange={(e) => handleAnswerSelect(index, e.target.value)}
-                            className="w-full p-3 rounded-md border border-gray-200 min-h-[100px] bg-white"
-                          />
-                        </div>
-                      )}
-                      
-                      <div className="flex justify-between mt-4">
-                        <div className="text-sm text-muted-foreground">
-                          {selectedAnswers[index] ? 'Answered' : 'Not answered'}
-                        </div>
-                        
-                        {index < testQuestions.length - 1 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              document.getElementById(`question-${index + 1}`)?.scrollIntoView({ 
-                                behavior: 'smooth' 
-                              });
-                            }}
-                            className="flex items-center gap-1 text-sm text-primary"
-                          >
-                            Next <ChevronRight size={16} />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                
-                <div className="sticky bottom-8 glass-card p-4 rounded-lg bg-white/90 border border-primary/10 shadow-lg">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm">
-                      <span className="font-medium">{selectedAnswers.filter(a => a).length}</span> of {testQuestions.length} questions answered
-                    </div>
-                    
-                    <div className="flex gap-3">
-                      <button
-                        type="button"
-                        onClick={resetTest}
-                        className="px-4 py-2 border border-gray-300 rounded-md text-sm"
-                      >
-                        Reset
-                      </button>
-                      
-                      <button
-                        type="submit"
-                        className="px-6 py-2 bg-primary text-white rounded-md text-sm"
-                      >
-                        Submit Test
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </form>
-            </div>
+              <button
+                onClick={submitTest}
+                className="flex items-center gap-1.5 px-4 py-1.5 text-sm rounded-md bg-primary text-white hover:bg-primary/90 transition-colors"
+              >
+                <Check className="w-4 h-4" />
+                <span>Submit Test</span>
+              </button>
+            </>
           )}
         </div>
       </div>
+      
+      {/* Test settings */}
+      {showSettings && !mockTest && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white/60 rounded-lg p-4 mb-6 shadow-sm"
+        >
+          <h3 className="font-medium text-sm mb-3 flex items-center gap-1.5">
+            <Settings className="w-4 h-4 text-primary" />
+            Test Settings
+          </h3>
+          
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm mb-1">Number of Questions</label>
+              <select
+                value={testSettings.numberOfQuestions}
+                onChange={(e) => setTestSettings({
+                  ...testSettings,
+                  numberOfQuestions: Number(e.target.value)
+                })}
+                className="w-full p-2 text-sm rounded-md border border-gray-200"
+              >
+                <option value={5}>5 questions</option>
+                <option value={10}>10 questions</option>
+                <option value={15}>15 questions</option>
+                <option value={20}>20 questions</option>
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm mb-1">Question Format</label>
+              <select
+                value={testSettings.format}
+                onChange={(e) => setTestSettings({
+                  ...testSettings,
+                  format: e.target.value as QuestionFormat
+                })}
+                className="w-full p-2 text-sm rounded-md border border-gray-200"
+              >
+                <option value="mcq">Multiple Choice Only</option>
+                <option value="shortAnswer">Short Answer Only</option>
+                <option value="mixed">Mixed Format</option>
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm mb-1">Difficulty</label>
+              <select
+                value={testSettings.difficulty}
+                onChange={(e) => setTestSettings({
+                  ...testSettings,
+                  difficulty: e.target.value as TestDifficulty
+                })}
+                className="w-full p-2 text-sm rounded-md border border-gray-200"
+              >
+                <option value="easy">Easy</option>
+                <option value="medium">Medium</option>
+                <option value="hard">Hard</option>
+                <option value="comprehensive">Comprehensive</option>
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm mb-1">Time Limit</label>
+              <select
+                value={testSettings.timeLimit}
+                onChange={(e) => setTestSettings({
+                  ...testSettings,
+                  timeLimit: Number(e.target.value)
+                })}
+                className="w-full p-2 text-sm rounded-md border border-gray-200"
+              >
+                <option value={0}>No time limit</option>
+                <option value={5}>5 minutes</option>
+                <option value={10}>10 minutes</option>
+                <option value={15}>15 minutes</option>
+                <option value={30}>30 minutes</option>
+              </select>
+            </div>
+          </div>
+        </motion.div>
+      )}
+      
+      {/* No PDF content */}
+      {!pdfContent && (
+        <div className="bg-amber-50 rounded-lg p-6 text-center">
+          <AlertCircle className="w-10 h-10 text-amber-500 mx-auto mb-4" />
+          <h3 className="text-lg font-medium mb-2">No PDF Uploaded</h3>
+          <p className="text-sm text-amber-700 mb-4">
+            Please upload a PDF document first to generate a mock test.
+          </p>
+        </div>
+      )}
+      
+      {/* Test generation loading */}
+      {isGenerating && (
+        <div className="bg-white/70 rounded-lg p-8 text-center">
+          <Loader2 className="w-12 h-12 text-primary mx-auto mb-4 animate-spin" />
+          <h3 className="text-lg font-medium mb-2">Generating Your Test</h3>
+          <p className="text-sm text-muted-foreground">
+            Creating {testSettings.numberOfQuestions} {testSettings.difficulty} questions based on your PDF...
+          </p>
+        </div>
+      )}
+      
+      {/* Test results */}
+      {testCompleted && testScore !== null && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="bg-white/70 rounded-lg p-6 mb-6"
+        >
+          <div className="flex items-center justify-center mb-4">
+            <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
+              <div className="text-2xl font-bold text-primary">{testScore}%</div>
+            </div>
+          </div>
+          
+          <h3 className="text-lg font-medium text-center mb-1">Test Completed</h3>
+          <p className="text-sm text-muted-foreground text-center mb-6">
+            You scored {testScore}% on this assessment
+          </p>
+          
+          <div className="flex justify-center gap-3">
+            <button
+              onClick={resetTest}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-secondary text-white"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>Retry Test</span>
+            </button>
+            
+            <button
+              onClick={handleGenerateTest}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary text-white"
+            >
+              <FileText className="w-4 h-4" />
+              <span>New Test</span>
+            </button>
+          </div>
+        </motion.div>
+      )}
+      
+      {/* MCQ section */}
+      {mcqQuestions.length > 0 && (
+        <div className="space-y-6 mb-8">
+          <div className="bg-primary/5 rounded-lg p-4">
+            <h3 className="font-medium flex items-center gap-1.5 mb-1">
+              <ListChecks className="w-4 h-4 text-primary" />
+              Multiple Choice Questions
+            </h3>
+            <p className="text-xs text-muted-foreground mb-4">
+              Select the best answer for each question
+            </p>
+            
+            <div className="space-y-6">
+              {mcqQuestions.map((question) => (
+                <div key={question.id} className={`bg-white rounded-lg p-4 shadow-sm transition-all duration-300 ${
+                  testCompleted 
+                    ? question.userAnswer === question.correctAnswer 
+                      ? "border-l-4 border-green-500" 
+                      : "border-l-4 border-red-400"
+                    : ""
+                }`}>
+                  <div className="flex items-start gap-2 mb-3">
+                    <span className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-medium flex-shrink-0">
+                      {question.id}
+                    </span>
+                    <h4 className="text-base">{question.question}</h4>
+                  </div>
+                  
+                  <div className="space-y-2 ml-8">
+                    {["A", "B", "C", "D"].map((option, index) => (
+                      <label 
+                        key={option} 
+                        className={`flex items-center gap-2 p-2 rounded cursor-pointer transition-colors ${
+                          testCompleted
+                            ? question.correctAnswer === option
+                              ? "bg-green-100"
+                              : question.userAnswer === option && question.userAnswer !== question.correctAnswer
+                                ? "bg-red-100"
+                                : "hover:bg-gray-50"
+                            : question.userAnswer === option
+                              ? "bg-primary/10"
+                              : "hover:bg-gray-50"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name={`question-${question.id}`}
+                          value={option}
+                          checked={question.userAnswer === option}
+                          onChange={() => handleAnswerChange(question.id, option, "mcq")}
+                          disabled={testCompleted}
+                          className="accent-primary"
+                        />
+                        <span className="text-sm">{option}. {question.options[index]}</span>
+                        {testCompleted && question.correctAnswer === option && (
+                          <CheckCircle2 className="w-4 h-4 text-green-500 ml-auto" />
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                  
+                  {testCompleted && question.userAnswer !== question.correctAnswer && (
+                    <div className="mt-3 ml-8 p-2 bg-blue-50 rounded text-sm">
+                      <p className="font-medium text-blue-700">Correct Answer: {question.correctAnswer}</p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Short answer section */}
+      {shortAnswerQuestions.length > 0 && (
+        <div className="space-y-6 mb-8">
+          <div className="bg-secondary/5 rounded-lg p-4">
+            <h3 className="font-medium flex items-center gap-1.5 mb-1">
+              <FileQuestion className="w-4 h-4 text-secondary" />
+              Short Answer Questions
+            </h3>
+            <p className="text-xs text-muted-foreground mb-4">
+              Write a brief response to each question
+            </p>
+            
+            <div className="space-y-6">
+              {shortAnswerQuestions.map((question) => (
+                <div key={question.id} className="bg-white rounded-lg p-4 shadow-sm">
+                  <div className="flex items-start gap-2 mb-3">
+                    <span className="w-6 h-6 rounded-full bg-secondary/10 text-secondary flex items-center justify-center text-sm font-medium flex-shrink-0">
+                      {question.id}
+                    </span>
+                    <h4 className="text-base">{question.question}</h4>
+                  </div>
+                  
+                  <div className="space-y-4 ml-8">
+                    <textarea
+                      value={question.userAnswer}
+                      onChange={(e) => handleAnswerChange(question.id, e.target.value, "shortAnswer")}
+                      placeholder="Write your answer here..."
+                      rows={3}
+                      disabled={testCompleted}
+                      className="w-full p-3 text-sm border border-gray-200 rounded-md focus:ring-1 focus:ring-primary focus:border-primary"
+                    />
+                    
+                    {testCompleted && question.modelAnswer && (
+                      <div className="p-3 bg-blue-50 rounded-md">
+                        <p className="text-xs font-medium text-blue-700 mb-1">Model Answer:</p>
+                        <p className="text-sm">{question.modelAnswer}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Empty state */}
+      {!mockTest && !isGenerating && pdfContent && (
+        <div className="bg-white/70 rounded-lg p-8 text-center">
+          <div className="w-16 h-16 mx-auto bg-primary/10 rounded-full flex items-center justify-center mb-4">
+            <BookOpen className="w-8 h-8 text-primary" />
+          </div>
+          <h3 className="text-lg font-medium mb-2">Ready to Test Your Knowledge</h3>
+          <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">
+            Generate a mock test based on your PDF document to assess your understanding of the content.
+          </p>
+          <button
+            onClick={handleGenerateTest}
+            className="flex items-center gap-2 bg-primary text-white py-2 px-4 rounded-md mx-auto hover:bg-primary/90 transition-colors"
+          >
+            <FileText className="w-4 h-4" />
+            <span>Generate Test</span>
+          </button>
+        </div>
+      )}
+      
+      {/* Submit button at bottom when questions are shown */}
+      {(mcqQuestions.length > 0 || shortAnswerQuestions.length > 0) && !testCompleted && (
+        <div className="sticky bottom-8 flex justify-center">
+          <button
+            onClick={submitTest}
+            className="flex items-center gap-2 bg-primary text-white py-2 px-6 rounded-md shadow-lg hover:bg-primary/90 transition-colors"
+          >
+            <Check className="w-4 h-4" />
+            <span>Submit Test</span>
+          </button>
+        </div>
+      )}
     </motion.div>
   );
 };
