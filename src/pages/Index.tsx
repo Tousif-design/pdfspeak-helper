@@ -33,7 +33,7 @@ const Index = () => {
     mockTest,
     isPdfAnalyzed,
     recognizedSpeech,
-    chatHistory
+    chatHistory = []
   } = useContext(DataContext);
   
   const [activeTab, setActiveTab] = useState("chat");
@@ -162,7 +162,7 @@ const Index = () => {
               {activeTab === "chat" && (
                 <div className="max-w-4xl mx-auto">
                   {/* Chat history button */}
-                  {chatHistory.length > 0 && (
+                  {chatHistory && chatHistory.length > 0 && (
                     <div className="flex justify-end mb-4">
                       <button
                         onClick={() => setShowChatHistory(!showChatHistory)}

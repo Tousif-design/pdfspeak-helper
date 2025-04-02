@@ -12,7 +12,7 @@ const ChatHistory = () => {
   };
 
   // Group chat messages by conversation
-  const conversations = chatHistory.reduce((acc, message, index) => {
+  const conversations = chatHistory ? chatHistory.reduce((acc, message, index) => {
     // Start a new conversation every time a user message follows an assistant message
     if (index > 0 && message.role === 'user' && chatHistory[index - 1].role === 'assistant') {
       acc.push([message]);
@@ -22,7 +22,7 @@ const ChatHistory = () => {
       acc[acc.length - 1].push(message);
     }
     return acc;
-  }, [] as {role: 'user' | 'assistant', content: string}[][]);
+  }, [] as {role: 'user' | 'assistant', content: string}[][]) : [];
 
   // Render the timestamp based on the message index
   const renderTimestamp = (index: number) => {
@@ -35,13 +35,14 @@ const ChatHistory = () => {
 
   // Truncate long messages for the history view
   const truncateMessage = (message: string, maxLength = 100) => {
+    if (!message) return "";
     if (message.length <= maxLength) return message;
     return message.substring(0, maxLength) + '...';
   };
 
   return (
     <div className="h-full flex flex-col">
-      {chatHistory.length === 0 ? (
+      {!chatHistory || chatHistory.length === 0 ? (
         <div className="flex items-center justify-center h-full">
           <p className="text-muted-foreground text-sm">No chat history yet</p>
         </div>
