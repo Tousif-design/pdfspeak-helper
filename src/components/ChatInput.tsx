@@ -36,7 +36,7 @@ const ChatInput = () => {
     if (recognizedSpeech && !inputText) {
       setInputText(recognizedSpeech);
     }
-  }, [recognizedSpeech]);
+  }, [recognizedSpeech, inputText, setInputText]);
   
   return (
     <motion.div 
@@ -47,7 +47,12 @@ const ChatInput = () => {
     >
       <div className="container px-4 mx-auto">
         <form 
-          onSubmit={handleSubmitText}
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (inputText.trim()) {
+              handleSubmitText(e);
+            }
+          }}
           className="max-w-3xl mx-auto relative pointer-events-auto"
         >
           <div className="relative group">
