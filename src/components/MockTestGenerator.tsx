@@ -1,20 +1,42 @@
 
 import React, { useContext, useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { DataContext } from "../context/UserContext";
+import { DataContext } from "../context/UserContext.tsx";
 import { BookOpen, AlertTriangle, Check, X, Clock, Award, ChevronRight, RotateCcw, Save, List, FileText } from "lucide-react";
 import { generateMockTest } from "../lib/geminiHelpers";
 import { toast } from "sonner";
 import { downloadBlob, generatePdf } from "../lib/pdfUtils";
 
+interface QuestionOption {
+  letter: string;
+  text: string;
+}
+
+interface Question {
+  question: string;
+  isMultipleChoice: boolean;
+  options: QuestionOption[];
+  fullText: string;
+}
+
 const MockTestGenerator = () => {
-  const { pdfContent, mockTest, mockTestAnswers, handleTestSubmit, testScore } = useContext(DataContext);
+  const context = useContext(DataContext);
+  
+  // Add a check for undefined context
+  if (!context) {
+    return <div className="flex items-center justify-center h-[600px]">
+      <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin mb-4"></div>
+      <p className="ml-3">Loading mock test generator...</p>
+    </div>;
+  }
+  
+  const { pdfContent, mockTest, mockTestAnswers, handleTestSubmit, testScore } = context;
   
   const [loading, setLoading] = useState(false);
   const [testStarted, setTestStarted] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState(30 * 60); // 30 minutes in seconds
   const [selectedAnswers, setSelectedAnswers] = useState<string[]>([]);
-  const [testQuestions, setTestQuestions] = useState<any[]>([]);
+  const [testQuestions, setTestQuestions] = useState<Question[]>([]);
   const [testTitle, setTestTitle] = useState("");
   const [showAnswers, setShowAnswers] = useState(false);
   const [testType, setTestType] = useState("comprehensive");
@@ -40,6 +62,7 @@ const MockTestGenerator = () => {
       toast.info("Generating mock test", { description: "This may take a moment..." });
       
       const generatedTest = await generateMockTest(pdfContent, testType, questionsCount, questionFormat);
+      console.log("Generated test:", generatedTest.substring(0, 500));
       
       // Parse test title
       const titleMatch = generatedTest.match(/^#\s*(.*)/m) || generatedTest.match(/^([^\n]+)/);
@@ -47,12 +70,15 @@ const MockTestGenerator = () => {
       
       // Parse questions
       const questionsMatch = generatedTest.match(/\d+\.\s*(.*?)(?=\n\s*(?:\d+\.|ANSWERS))/gs);
+      
       if (questionsMatch) {
+        console.log("Found questions:", questionsMatch.length);
+        
         const parsedQuestions = questionsMatch.map(q => {
           // Try to identify multiple choice options
           const options = q.match(/([A-D])\.?\s*(.*?)(?=\n\s*(?:[A-D]\.|\d+\.)|\s*$)/gs);
           
-          return {
+          const question: Question = {
             question: q.split(/\n\s*[A-D]\./).shift()?.replace(/^\d+\.\s*/, '').trim() || "",
             isMultipleChoice: !!options,
             options: options ? options.map(opt => {
@@ -60,19 +86,46 @@ const MockTestGenerator = () => {
               return match ? { 
                 letter: match[1], 
                 text: match[2].trim() 
-              } : null;
-            }).filter(Boolean) : [],
+              } : { letter: "", text: "" };
+            }).filter(opt => opt.letter) : [],
             fullText: q.trim()
           };
+          
+          console.log(`Question ${testQuestions.length + 1}:`, question.question.substring(0, 50), 
+                     `is MCQ: ${question.isMultipleChoice}`, 
+                     `options: ${question.options.length}`);
+          
+          return question;
         });
         
         setTestQuestions(parsedQuestions);
+        
+        // Parse answers section
+        const answerSection = generatedTest.match(/ANSWERS[\s\S]*$/i);
+        if (answerSection) {
+          const answers = answerSection[0].match(/\d+\.\s*([A-D]|.+)/g) || [];
+          const cleanedAnswers = answers.map(a => {
+            // Extract just the answer part (A, B, C, D or text after the number)
+            const match = a.match(/\d+\.\s*([A-D]|.+)/);
+            return match ? match[1].trim() : a.trim();
+          });
+          
+          console.log("Extracted answers:", cleanedAnswers);
+          context.mockTestAnswers = cleanedAnswers;
+        }
+      } else {
+        console.error("No questions found in generated test");
+        toast.error("Test generation failed", { 
+          description: "Unable to extract questions from the generated test" 
+        });
       }
       
       toast.success("Test generated", { description: "Ready to start your mock test" });
     } catch (error) {
       console.error("Error generating test:", error);
-      toast.error("Failed to generate test", { description: error instanceof Error ? error.message : "Unknown error" });
+      toast.error("Failed to generate test", { 
+        description: error instanceof Error ? error.message : "Unknown error" 
+      });
     } finally {
       setLoading(false);
     }
@@ -139,7 +192,7 @@ const MockTestGenerator = () => {
         content += `Question ${index + 1}: ${q.question}\n`;
         
         if (q.isMultipleChoice) {
-          q.options.forEach((opt: any) => {
+          q.options.forEach((opt) => {
             content += `${opt.letter}. ${opt.text}\n`;
           });
         }
@@ -154,7 +207,9 @@ const MockTestGenerator = () => {
       toast.success("PDF exported", { description: "Your test results have been saved as a PDF" });
     } catch (error) {
       console.error("Error exporting results:", error);
-      toast.error("Failed to export results", { description: error instanceof Error ? error.message : "Unknown error" });
+      toast.error("Failed to export results", { 
+        description: error instanceof Error ? error.message : "Unknown error" 
+      });
     }
   };
 
@@ -334,7 +389,7 @@ const MockTestGenerator = () => {
                         <p className="font-medium text-sm">{idx+1}. {q.question}</p>
                         {q.isMultipleChoice && (
                           <div className="mt-1 text-xs text-muted-foreground">
-                            {q.options.slice(0, 2).map((opt: any) => (
+                            {q.options.slice(0, 2).map((opt) => (
                               <div key={opt.letter} className="ml-2">{opt.letter}. {opt.text.substring(0, 40)}...</div>
                             ))}
                             <div className="ml-2 italic">+ more options...</div>
@@ -425,7 +480,7 @@ const MockTestGenerator = () => {
                           
                           {question.isMultipleChoice && (
                             <div className="mt-3 space-y-2">
-                              {question.options.map((opt: any) => (
+                              {question.options.map((opt) => (
                                 <div 
                                   key={opt.letter}
                                   className={`p-2 rounded ${
@@ -492,7 +547,7 @@ const MockTestGenerator = () => {
                       
                       {question.isMultipleChoice ? (
                         <div className="space-y-2 ml-1">
-                          {question.options.map((opt: any) => (
+                          {question.options.map((opt) => (
                             <div key={opt.letter} className="p-2 hover:bg-primary/5 rounded transition-colors">
                               <label className="flex items-center gap-2 cursor-pointer">
                                 <input 
@@ -517,7 +572,7 @@ const MockTestGenerator = () => {
                             placeholder="Type your answer here..."
                             value={selectedAnswers[index] || ''}
                             onChange={(e) => handleAnswerSelect(index, e.target.value)}
-                            className="w-full p-3 rounded-md border border-gray-200 min-h-[100px] bg-white"
+                            className="w-full p-3 rounded-md border border-gray-200 min-h-[100px]"
                           />
                         </div>
                       )}

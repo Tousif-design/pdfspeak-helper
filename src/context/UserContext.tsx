@@ -52,7 +52,7 @@ interface UserContextType {
   setRecognizedSpeech: React.Dispatch<React.SetStateAction<string>>;
 }
 
-const DataContext = createContext<UserContextType>({} as UserContextType);
+const DataContext = createContext<UserContextType | null>(null);
 
 function UserContext({ children }: { children: React.ReactNode }) {
   // Speech & recognition states
@@ -229,7 +229,11 @@ function UserContext({ children }: { children: React.ReactNode }) {
             recognition.stop();
             setTimeout(() => {
               setIsListening(true);
-              recognition.start();
+              try {
+                recognition.start();
+              } catch (innerError) {
+                console.error("Failed to restart recognition after timeout:", innerError);
+              }
             }, 300);
           }
         }
@@ -354,12 +358,35 @@ function UserContext({ children }: { children: React.ReactNode }) {
 
   // Initialize speech recognition
   useEffect(() => {
+    let cleanup = false;
+    
+    // Helper function to safely start recognition
+    const safelyStartRecognition = (rec: SpeechRecognition) => {
+      if (cleanup) return;
+      
+      try {
+        if (rec.state !== 'active') {
+          rec.start();
+          console.log("Speech recognition started");
+          setIsListening(true);
+        }
+      } catch (error) {
+        console.error("Error starting recognition:", error);
+        // If already started, don't show error
+        if (!(error instanceof DOMException && error.name === 'InvalidStateError')) {
+          toast.error("Voice recognition error", { 
+            description: "Please try again or type your question" 
+          });
+        }
+      }
+    };
+    
     function setupSpeechRecognition() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SpeechRecognition) {
+      if (SpeechRecognition && !cleanup) {
         const recognitionInstance = new SpeechRecognition();
         recognitionInstance.continuous = true;
-        recognitionInstance.interimResults = true;
+        recognitionInstance.interimResults = false;
         recognitionInstance.lang = "en-US";
         recognitionInstance.maxAlternatives = 1;
   
@@ -369,50 +396,24 @@ function UserContext({ children }: { children: React.ReactNode }) {
         };
   
         recognitionInstance.onresult = (event) => {
-          const transcript = Array.from(event.results)
-            .map(result => result[0].transcript)
-            .join('');
+          const finalSpeech = event.results[event.results.length - 1][0].transcript;
+          console.log("Recognized speech:", finalSpeech);
           
-          console.log("Recognized speech:", transcript);
-          setRecognizedSpeech(transcript);
-          
-          // Only process final results
-          if (event.results[event.results.length - 1].isFinal) {
-            const finalSpeech = event.results[event.results.length - 1][0].transcript;
-            
-            // Dispatch a custom event for components that need to listen to speech
-            const speechEvent = new CustomEvent('speechRecognition', {
-              detail: { transcript: finalSpeech }
-            });
-            window.dispatchEvent(speechEvent);
-  
-            // If already speaking, treat "stop" commands specially
-            if (speaking && 
-               (finalSpeech.toLowerCase().includes("stop") || 
-                finalSpeech.toLowerCase().includes("quiet") || 
-                finalSpeech.toLowerCase().includes("shut up") ||
-                finalSpeech.toLowerCase().includes("cancel"))) {
-              stopSpeaking();
-              setAiResponse("I've stopped speaking as requested.");
-            }
-          }
+          setRecognizedSpeech(finalSpeech);
+          aiResponseHandler(finalSpeech);
         };
   
         recognitionInstance.onend = () => {
           console.log("Speech recognition stopped...");
           setIsListening(false);
           
-          // Auto-restart recognition if it wasn't manually stopped and not speaking
-          if (!speaking) {
-            try {
-              setTimeout(() => {
-                recognitionInstance.start();
-                setIsListening(true);
-                console.log("Auto-restarted speech recognition");
-              }, 500);
-            } catch (error) {
-              console.error("Error auto-restarting recognition:", error);
-            }
+          // Only auto-restart if not cleaning up and not speaking
+          if (!cleanup && !speaking) {
+            setTimeout(() => {
+              if (!cleanup && !speaking) {
+                safelyStartRecognition(recognitionInstance);
+              }
+            }, 1000);
           }
         };
   
@@ -420,61 +421,44 @@ function UserContext({ children }: { children: React.ReactNode }) {
           console.error("Recognition error:", event.error);
           
           // If aborted, don't show toast
-          if (event.error !== 'aborted') {
+          if (event.error !== 'aborted' && !cleanup) {
             toast.error("Voice recognition error", { 
               description: "Please try again or type your question" 
             });
           }
-          
-          // Try to restart after error
-          setTimeout(() => {
-            try {
-              recognitionInstance.start();
-              setIsListening(true);
-              console.log("Restarted speech recognition after error");
-            } catch (innerError) {
-              console.error("Failed to restart recognition after error:", innerError);
-            }
-          }, 2000);
         };
   
         setRecognition(recognitionInstance);
         
-        // Auto-start recognition
-        try {
-          recognitionInstance.start();
-          console.log("Initial speech recognition started");
-        } catch (error) {
-          console.error("Error starting recognition initially:", error);
-          toast.error("Couldn't start voice recognition", {
-            description: "Please try refreshing the page"
+        // Initial start with delay to ensure UI is ready
+        setTimeout(() => {
+          if (!cleanup) {
+            safelyStartRecognition(recognitionInstance);
+          }
+        }, 1000);
+      } else if (!SpeechRecognition) {
+        console.warn("Speech Recognition is not supported in this browser.");
+        if (!cleanup) {
+          toast.error("Voice features unavailable", { 
+            description: "Your browser doesn't support speech recognition" 
           });
         }
-      } else {
-        console.warn("Speech Recognition is not supported in this browser.");
-        toast.error("Voice features unavailable", { 
-          description: "Your browser doesn't support speech recognition" 
-        });
       }
     }
     
     // Load voices first
-    const loadVoices = () => {
-      // Attempt to load voices
-      window.speechSynthesis.getVoices();
-      
-      // Set up event listener for when voices are loaded
-      if (speechSynthesis.onvoiceschanged !== undefined) {
-        speechSynthesis.onvoiceschanged = setupSpeechRecognition;
-      } else {
-        setupSpeechRecognition();
-      }
-    };
+    window.speechSynthesis.getVoices();
     
-    loadVoices();
+    // Set up event listener for when voices are loaded
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+      speechSynthesis.onvoiceschanged = setupSpeechRecognition;
+    } else {
+      setupSpeechRecognition();
+    }
     
     // Cleanup
     return () => {
+      cleanup = true;
       if (recognition) {
         try {
           recognition.stop();
@@ -488,15 +472,38 @@ function UserContext({ children }: { children: React.ReactNode }) {
   }, []);
 
   function toggleRecognition(): void {
-    if (!recognition) return;
+    if (!recognition) {
+      toast.error("Speech recognition not available", {
+        description: "Your browser may not support this feature"
+      });
+      return;
+    }
+    
     if (isListening) {
       console.log("Stopping recognition...");
-      setIsListening(false);
-      recognition.stop();
+      try {
+        recognition.stop();
+        setIsListening(false);
+      } catch (error) {
+        console.error("Error stopping recognition:", error);
+      }
     } else {
       console.log("Starting recognition...");
-      setIsListening(true);
-      recognition.start();
+      try {
+        recognition.start();
+        setIsListening(true);
+      } catch (error) {
+        console.error("Error starting recognition:", error);
+        
+        // If already started, just update UI
+        if (error instanceof DOMException && error.name === 'InvalidStateError') {
+          setIsListening(true);
+        } else {
+          toast.error("Couldn't start voice recognition", {
+            description: "Please try again"
+          });
+        }
+      }
     }
   }
 
