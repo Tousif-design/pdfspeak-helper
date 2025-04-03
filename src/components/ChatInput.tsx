@@ -1,7 +1,7 @@
 
 import React, { useContext, useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { DataContext } from "../context/UserContext.tsx";
+import { DataContext } from "../context/UserContext";
 import { Send, Mic, MicOff, ArrowUp, Sparkles } from "lucide-react";
 
 const ChatInput = () => {
