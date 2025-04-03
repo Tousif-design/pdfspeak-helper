@@ -10,6 +10,7 @@ import ChatInput from "../components/ChatInput";
 import ChatSection from "../components/ChatSection";
 import TabNavigation from "../components/TabNavigation";
 import PdfNotification from "../components/PdfNotification";
+import StudyTools from "../components/StudyTools";
 
 const Index = () => {
   const context = useContext(DataContext);
@@ -26,7 +27,7 @@ const Index = () => {
   
   const [activeTab, setActiveTab] = React.useState("chat");
   
-  const showPdfNotification = activeTab !== "chat" && !pdfContent;
+  const showPdfNotification = (activeTab === "pdf" || activeTab === "test" || activeTab === "interview") && !pdfContent;
 
   // Switch to test tab when a mock test is generated
   useEffect(() => {
@@ -75,6 +76,7 @@ const Index = () => {
             {activeTab === "pdf" && <PDFViewer />}
             {activeTab === "test" && <MockTestGenerator />}
             {activeTab === "interview" && <InterviewSimulator />}
+            {activeTab === "study" && <StudyTools />}
           </motion.div>
         </AnimatePresence>
         

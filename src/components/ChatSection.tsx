@@ -1,27 +1,78 @@
-import React from "react";
+
+import React, { useContext } from "react";
 import { motion } from "framer-motion";
-import { FileText, BookOpen, Bot, Upload, AlertCircle } from "lucide-react";
+import { DataContext } from "../context/UserContext";
+import { FileText, BookOpen, Bot, Upload, PauseCircle, PlayCircle } from "lucide-react";
 import ExampleQueries from './ExampleQueries';
+import { useToast } from "../hooks/use-toast";
 
 interface ChatSectionProps {
-  userQuery: string;
-  aiResponse: string;
-}
-
-interface WelcomeSectionProps {
-  pdfContent: string;
-  pdfName: string;
-  isPdfAnalyzed: boolean;
-  handleFileUpload: (event: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
-  isProcessingPdf: boolean;
   setActiveTab: (tab: string) => void;
 }
 
-const ChatSection: React.FC<ChatSectionProps> = ({ userQuery, aiResponse }) => {
+const ChatSection: React.FC<ChatSectionProps> = ({ setActiveTab }) => {
+  const context = useContext(DataContext);
+  const { toast } = useToast();
+  
+  if (!context) {
+    return <div>Loading context...</div>;
+  }
+  
+  const { 
+    userQuery, 
+    aiResponse, 
+    pdfContent, 
+    pdfName, 
+    isPdfAnalyzed, 
+    handleFileUpload, 
+    isProcessingPdf,
+    speaking,
+    stopSpeaking,
+    speak,
+    toggleRecognition,
+    isListening
+  } = context;
+
+  const handleStopConversation = () => {
+    stopSpeaking();
+    toast({
+      title: "Conversation paused",
+      description: "Voice output has been stopped",
+    });
+  };
+
+  const handleResumeConversation = () => {
+    if (aiResponse) {
+      speak(aiResponse);
+      toast({
+        title: "Conversation resumed",
+        description: "Voice output has been resumed",
+      });
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto">
       {(userQuery || aiResponse) && (
         <div className="mb-8 space-y-4">
+          <div className="flex justify-center gap-2 mb-4">
+            <button
+              onClick={handleStopConversation}
+              className="flex items-center gap-2 bg-red-500 text-white py-2 px-4 rounded-full hover:bg-red-600 transition-colors"
+            >
+              <PauseCircle className="w-4 h-4" />
+              <span>Stop Voice</span>
+            </button>
+            
+            <button
+              onClick={handleResumeConversation}
+              className="flex items-center gap-2 bg-green-500 text-white py-2 px-4 rounded-full hover:bg-green-600 transition-colors"
+            >
+              <PlayCircle className="w-4 h-4" />
+              <span>Resume Voice</span>
+            </button>
+          </div>
+          
           {userQuery && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
@@ -67,9 +118,29 @@ const ChatSection: React.FC<ChatSectionProps> = ({ userQuery, aiResponse }) => {
           )}
         </div>
       )}
+
+      {!userQuery && !aiResponse && (
+        <WelcomeSection 
+          pdfContent={pdfContent} 
+          pdfName={pdfName} 
+          isPdfAnalyzed={isPdfAnalyzed} 
+          handleFileUpload={handleFileUpload} 
+          isProcessingPdf={isProcessingPdf}
+          setActiveTab={setActiveTab}
+        />
+      )}
     </div>
   );
 };
+
+interface WelcomeSectionProps {
+  pdfContent: string;
+  pdfName: string;
+  isPdfAnalyzed: boolean;
+  handleFileUpload: (event: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
+  isProcessingPdf: boolean;
+  setActiveTab: (tab: string) => void;
+}
 
 const WelcomeSection: React.FC<WelcomeSectionProps> = ({ pdfContent, pdfName, isPdfAnalyzed, handleFileUpload, isProcessingPdf, setActiveTab }) => {
   return (
@@ -143,4 +214,4 @@ const WelcomeSection: React.FC<WelcomeSectionProps> = ({ pdfContent, pdfName, is
   );
 };
 
-export { ChatSection, WelcomeSection };
+export default ChatSection;

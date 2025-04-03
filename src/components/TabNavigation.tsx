@@ -1,6 +1,6 @@
 
 import React from "react";
-import { Bot, FileText, BookOpen, Video } from "lucide-react";
+import { Bot, FileText, BookOpen, Video, Brain } from "lucide-react";
 
 interface TabNavigationProps {
   activeTab: string;
@@ -13,7 +13,8 @@ const TabNavigation: React.FC<TabNavigationProps> = ({ activeTab, setActiveTab, 
     { id: "chat", label: "AI Assistant", icon: <Bot className="w-4 h-4" /> },
     { id: "pdf", label: "PDF Analysis", icon: <FileText className="w-4 h-4" />, disabled: !pdfContent },
     { id: "test", label: "Mock Tests", icon: <BookOpen className="w-4 h-4" />, disabled: !pdfContent },
-    { id: "interview", label: "Interview", icon: <Video className="w-4 h-4" />, disabled: !pdfContent }
+    { id: "interview", label: "Interview Prep", icon: <Video className="w-4 h-4" />, disabled: !pdfContent },
+    { id: "study", label: "Study Tools", icon: <Brain className="w-4 h-4" /> }
   ];
 
   return (
@@ -22,7 +23,7 @@ const TabNavigation: React.FC<TabNavigationProps> = ({ activeTab, setActiveTab, 
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => !tab.disabled && setActiveTab(tab.id)}
             disabled={tab.disabled}
             className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full transition-all duration-300 ${
               activeTab === tab.id
