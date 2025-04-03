@@ -2,7 +2,7 @@
 import React, { useContext, useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import { DataContext } from "../context/UserContext.tsx";
-import { Video, Mic, MicOff, Camera, CameraOff, Check, X, Send, Stop } from "lucide-react";
+import { Video, Mic, MicOff, Camera, CameraOff, Check, X, Send, Square } from "lucide-react";
 import { toast } from "sonner";
 
 const InterviewSimulator = () => {
@@ -153,10 +153,10 @@ const InterviewSimulator = () => {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.5 }}
-        className="w-full max-w-4xl mx-auto mt-4 glass-card rounded-xl overflow-hidden"
+        className="w-full max-w-4xl mx-auto mt-4 glass-card rounded-xl overflow-hidden shadow-lg bg-white/10 backdrop-blur-md border border-white/20"
       >
         <div className="flex flex-col h-full">
-          <div className="px-6 py-4 bg-background/70 border-b border-border flex items-center justify-between">
+          <div className="px-6 py-4 bg-gradient-to-r from-primary/20 to-primary/5 border-b border-border flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
                 <Video className="w-5 h-5 text-primary" />
@@ -171,17 +171,17 @@ const InterviewSimulator = () => {
             
             <button
               onClick={stopInterview}
-              className="px-3 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors flex items-center gap-1.5"
+              className="px-3 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors flex items-center gap-1.5 shadow-md"
             >
-              <Stop className="w-4 h-4" />
+              <Square className="w-4 h-4" />
               <span>End Interview</span>
             </button>
           </div>
           
-          <div className="p-6 bg-background/5">
+          <div className="p-6 bg-gradient-to-b from-white/5 to-transparent">
             <div className="mb-6">
-              <div className="glass-card p-4 rounded-lg bg-white/70 mb-4">
-                <h4 className="font-medium mb-2">Current Question:</h4>
+              <div className="glass-card p-4 rounded-lg bg-white/80 shadow-md mb-4 border border-white/30">
+                <h4 className="font-medium mb-2 text-primary">Current Question:</h4>
                 <p className="text-lg">{currentInterviewQuestion}</p>
               </div>
               
@@ -189,9 +189,9 @@ const InterviewSimulator = () => {
                 <motion.div 
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="glass-card p-4 rounded-lg bg-primary/5 mb-4"
+                  className="glass-card p-4 rounded-lg bg-primary/5 mb-4 shadow-md border border-primary/20"
                 >
-                  <h4 className="font-medium mb-2">Feedback:</h4>
+                  <h4 className="font-medium mb-2 text-primary">Feedback:</h4>
                   <p>{interviewFeedback}</p>
                 </motion.div>
               )}
@@ -200,9 +200,9 @@ const InterviewSimulator = () => {
                 <motion.div 
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="glass-card p-4 rounded-lg bg-green-50 border border-green-100 mb-4"
+                  className="glass-card p-4 rounded-lg bg-green-50 border border-green-200 mb-4 shadow-md"
                 >
-                  <h4 className="font-medium mb-2">Interview Complete</h4>
+                  <h4 className="font-medium mb-2 text-green-800">Interview Complete</h4>
                   <p>Your overall score: <span className="font-medium text-lg">{interviewScore}%</span></p>
                   <p className="text-sm text-muted-foreground mt-2">
                     Thanks for completing the interview! You can now end the session.
@@ -213,7 +213,7 @@ const InterviewSimulator = () => {
             
             <div className="flex flex-col md:flex-row gap-6">
               <div className="w-full md:w-1/2">
-                <div className="aspect-video bg-black rounded-lg overflow-hidden relative mb-4">
+                <div className="aspect-video bg-black rounded-lg overflow-hidden relative mb-4 shadow-xl">
                   <video 
                     ref={videoRef} 
                     autoPlay 
@@ -224,7 +224,7 @@ const InterviewSimulator = () => {
                   <div className="absolute bottom-3 right-3 flex gap-2">
                     <button
                       onClick={toggleRecording}
-                      className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg ${
                         isRecording ? 'bg-red-500 text-white' : 'bg-white text-gray-800'
                       }`}
                     >
@@ -236,8 +236,8 @@ const InterviewSimulator = () => {
                 <div className="flex gap-2 mb-2">
                   <button 
                     onClick={() => setIsTyping(true)}
-                    className={`px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5 ${
-                      isTyping ? 'bg-primary text-white' : 'bg-gray-100'
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-all shadow-md ${
+                      isTyping ? 'bg-primary text-white' : 'bg-gray-100 hover:bg-gray-200'
                     }`}
                   >
                     Type
@@ -251,8 +251,8 @@ const InterviewSimulator = () => {
                         setIsRecording(true);
                       }
                     }}
-                    className={`px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5 ${
-                      !isTyping ? 'bg-primary text-white' : 'bg-gray-100'
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-all shadow-md ${
+                      !isTyping ? 'bg-primary text-white' : 'bg-gray-100 hover:bg-gray-200'
                     }`}
                     disabled={!recognition}
                   >
@@ -263,14 +263,14 @@ const InterviewSimulator = () => {
               </div>
               
               <div className="w-full md:w-1/2">
-                <div className="glass-card p-4 rounded-lg bg-white/70 h-full flex flex-col">
-                  <h4 className="font-medium mb-2">Your Answer:</h4>
+                <div className="glass-card p-4 rounded-lg bg-white/80 h-full flex flex-col shadow-md border border-white/30">
+                  <h4 className="font-medium mb-2 text-primary">Your Answer:</h4>
                   
                   <textarea
                     value={userResponse}
                     onChange={(e) => setUserResponse(e.target.value)}
                     placeholder="Type or speak your answer here..."
-                    className="flex-1 p-3 rounded-md border border-gray-200 bg-white min-h-[150px] text-sm"
+                    className="flex-1 p-3 rounded-md border border-gray-200 bg-white min-h-[150px] text-sm focus:ring-2 focus:ring-primary/40 focus:outline-none transition-all resize-none shadow-inner"
                     disabled={!isTyping && isRecording}
                   />
                   
@@ -278,7 +278,7 @@ const InterviewSimulator = () => {
                     <button
                       onClick={handleSubmitAnswer}
                       disabled={!userResponse.trim()}
-                      className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                      className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-all flex items-center gap-1.5 disabled:opacity-50 shadow-md transform hover:translate-y-[-2px]"
                     >
                       <Send className="w-4 h-4" />
                       Submit Answer
@@ -299,10 +299,10 @@ const InterviewSimulator = () => {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
-      className="w-full max-w-4xl mx-auto mt-8 glass-card rounded-xl overflow-hidden"
+      className="w-full max-w-4xl mx-auto mt-8 glass-card rounded-xl overflow-hidden shadow-lg bg-white/10 backdrop-blur-md border border-white/20"
     >
       <div className="flex flex-col h-full">
-        <div className="px-6 py-4 bg-background/70 border-b border-border flex items-center justify-between">
+        <div className="px-6 py-4 bg-gradient-to-r from-primary/20 to-primary/5 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
               <Video className="w-5 h-5 text-primary" />
@@ -316,7 +316,7 @@ const InterviewSimulator = () => {
           </div>
         </div>
         
-        <div className="p-6">
+        <div className="p-6 bg-gradient-to-b from-white/5 to-transparent">
           {isPreparing ? (
             <div className="text-center py-12">
               <div className="flex flex-col items-center">
@@ -329,15 +329,15 @@ const InterviewSimulator = () => {
             </div>
           ) : interviewQuestions.length > 0 ? (
             <div className="max-w-3xl mx-auto">
-              <div className="glass-card p-5 rounded-lg bg-white/50 mb-6">
-                <h3 className="text-xl font-medium mb-3">Interview Ready</h3>
+              <div className="glass-card p-5 rounded-lg bg-white/50 mb-6 shadow-md border border-white/30">
+                <h3 className="text-xl font-medium mb-3 text-primary">Interview Ready</h3>
                 <p className="text-sm text-muted-foreground mb-4">
                   {interviewQuestions.length} questions have been prepared based on your PDF content.
                   Start the interview when you're ready.
                 </p>
                 
-                <div className="p-4 bg-gray-50 rounded-lg mb-4">
-                  <h4 className="font-medium mb-2">Sample Questions:</h4>
+                <div className="p-4 bg-gray-50 rounded-lg mb-4 shadow-inner">
+                  <h4 className="font-medium mb-2 text-primary">Sample Questions:</h4>
                   <ul className="space-y-2">
                     {interviewQuestions.slice(0, 3).map((q, i) => (
                       <li key={i} className="text-sm">{i + 1}. {q}</li>
@@ -350,36 +350,36 @@ const InterviewSimulator = () => {
                 
                 <button
                   onClick={startInterviewWithCamera}
-                  className="w-full py-2.5 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+                  className="w-full py-2.5 bg-primary text-white rounded-md hover:bg-primary/90 transition-all flex items-center justify-center gap-2 shadow-md transform hover:translate-y-[-2px]"
                 >
                   <Camera className="w-4 h-4" />
                   <span>Start Interview with Camera</span>
                 </button>
               </div>
               
-              <div className="glass-card p-5 rounded-lg">
-                <h3 className="font-medium mb-3">Options</h3>
+              <div className="glass-card p-5 rounded-lg shadow-md border border-white/30">
+                <h3 className="font-medium mb-3 text-primary">Options</h3>
                 
                 <div className="space-y-4">
                   <button
                     onClick={handlePrepareInterview}
-                    className="w-full py-2 border border-gray-200 rounded-md hover:bg-gray-50 transition-colors"
+                    className="w-full py-2 border border-gray-200 rounded-md hover:bg-gray-50 transition-all shadow-sm"
                   >
                     Regenerate Questions
                   </button>
                   
                   <div>
-                    <h4 className="text-sm font-medium mb-2">Add Custom Questions</h4>
+                    <h4 className="text-sm font-medium mb-2 text-primary">Add Custom Questions</h4>
                     <textarea
                       value={customQuestions}
                       onChange={(e) => setCustomQuestions(e.target.value)}
                       placeholder="Enter questions, one per line..."
-                      className="w-full p-3 rounded-md border border-gray-200 min-h-[100px] text-sm mb-2"
+                      className="w-full p-3 rounded-md border border-gray-200 min-h-[100px] text-sm mb-2 focus:ring-2 focus:ring-primary/40 focus:outline-none transition-all resize-none shadow-inner"
                     />
                     <button
                       onClick={handleSubmitCustomQuestions}
                       disabled={!customQuestions.trim()}
-                      className="w-full py-2 bg-secondary text-white rounded-md hover:bg-secondary/90 transition-colors disabled:opacity-50"
+                      className="w-full py-2 bg-secondary text-white rounded-md hover:bg-secondary/90 transition-all disabled:opacity-50 shadow-md transform hover:translate-y-[-2px]"
                     >
                       Add Custom Questions
                     </button>
@@ -390,8 +390,8 @@ const InterviewSimulator = () => {
           ) : (
             <div className="text-center py-12">
               <div className="flex flex-col items-center">
-                <Video className="w-12 h-12 text-muted-foreground mb-4" />
-                <h3 className="text-xl font-medium mb-2">Interview Simulator</h3>
+                <Video className="w-12 h-12 text-primary mb-4 opacity-75" />
+                <h3 className="text-xl font-medium mb-2 text-primary">Interview Simulator</h3>
                 <p className="text-muted-foreground max-w-md mx-auto mb-6">
                   {pdfContent 
                     ? "Generate interview questions based on your PDF to practice your skills"
@@ -402,7 +402,7 @@ const InterviewSimulator = () => {
                   <div className="flex gap-3">
                     <button
                       onClick={handlePrepareInterview}
-                      className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
+                      className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-all shadow-md transform hover:translate-y-[-2px]"
                     >
                       Prepare Interview Questions
                     </button>
