@@ -8,60 +8,78 @@ export async function analyzePdfContent(pdfText: string): Promise<string> {
       throw new Error("No PDF content provided");
     }
 
-    const prompt = `
-      Analyze the following PDF content and provide a comprehensive analysis.
-      Include main topics, key points, and important information.
-      Structure your response with sections for better readability.
-      
-      PDF Content:
-      ${pdfText.substring(0, 15000)}
-    `;
-
-    // For demo, simulate API call
-    console.log("Analyzing PDF content...");
+    console.log("Analyzing PDF content length:", pdfText.length);
     
-    // In a real app, you would make an API call to Gemini here
-    // For this demo, return a placeholder response
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Extract key concepts from PDF text
+    const mainTopics = extractMainTopics(pdfText);
+    const keyTerms = extractKeyTerms(pdfText);
     
-    return `
+    // Format the analysis response
+    const analysis = `
       # PDF Analysis
 
       ## Overview
-      This document appears to be a professional resume or CV, outlining the qualifications, experience, and skills of the individual. It includes sections for professional experience, education, skills, and possibly projects or achievements.
+      This document contains ${pdfText.length} characters of text content. The content appears to cover topics related to ${mainTopics.slice(0, 3).join(", ")}.
 
-      ## Key Components
+      ## Key Topics
+      ${mainTopics.map(topic => `- ${topic}`).join("\n")}
+
+      ## Important Terms and Concepts
+      ${keyTerms.map(term => `- ${term}`).join("\n")}
+
+      ## Summary
+      The document discusses various aspects of ${mainTopics[0] || "the subject matter"}. It contains information that would be valuable for quiz preparation and interview practice.
       
-      ### Professional Experience
-      The document details work history, including position titles, companies, dates of employment, and descriptions of responsibilities and accomplishments. The experience seems to highlight relevant skills and achievements in each role.
-
-      ### Education
-      This section lists educational qualifications, including degrees, institutions, graduation dates, and possibly GPA or academic achievements.
-
-      ### Skills
-      The document outlines technical skills, possibly including programming languages, tools, frameworks, and methodologies relevant to the individual's field.
-
-      ### Additional Sections
-      The document may include additional sections such as:
-      - Projects
-      - Certifications
-      - Publications
-      - Languages
-      - Volunteer experience
-
       ## Recommendations
-      To get the most value from this document, consider:
-      - Asking specific questions about the experience or skills mentioned
-      - Requesting tailored interview questions based on the content
-      - Creating mock tests to assess knowledge in the areas of expertise mentioned
-      - Using the document as a reference for preparing targeted learning plans
-
-      I can provide more specific analysis if you have particular areas of interest within the document.
+      - Review the key concepts identified above
+      - Create flashcards for important terms
+      - Practice explaining these concepts in your own words
+      - Take a mock test to assess your understanding
     `;
+    
+    return analysis;
   } catch (error) {
     console.error("Error analyzing PDF:", error);
     throw new Error("Failed to analyze PDF content");
   }
+}
+
+// Helper function to extract main topics from text
+function extractMainTopics(text: string): string[] {
+  // Simple frequency-based topic extraction
+  const words = text.toLowerCase().split(/\W+/).filter(word => word.length > 4);
+  const stopwords = ['about', 'above', 'after', 'again', 'against', 'these', 'those', 'their', 'there', 'which', 'while', 'would', 'should', 'could', 'thing', 'things'];
+  
+  // Count word frequency
+  const wordCounts: Record<string, number> = {};
+  for (const word of words) {
+    if (word.length > 3 && !stopwords.includes(word)) {
+      wordCounts[word] = (wordCounts[word] || 0) + 1;
+    }
+  }
+  
+  // Get top words by frequency
+  const topics = Object.entries(wordCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([word]) => word.charAt(0).toUpperCase() + word.slice(1));
+  
+  return topics.length > 0 ? topics : ["General Information"];
+}
+
+// Helper function to extract key terms
+function extractKeyTerms(text: string): string[] {
+  // Find capitalized terms or phrases in quotes that might be important
+  const capitalizedTerms = text.match(/\b[A-Z][a-zA-Z]{2,}\b/g) || [];
+  const quotedTerms = text.match(/"([^"]+)"/g) || [];
+  
+  // Combine and deduplicate
+  const allTerms = [...new Set([
+    ...capitalizedTerms,
+    ...quotedTerms.map(term => term.replace(/"/g, ''))
+  ])];
+  
+  return allTerms.slice(0, 15);
 }
 
 // Function to answer questions from PDF
@@ -71,43 +89,57 @@ export async function answerQuestionFromPdf(question: string, pdfText: string): 
       throw new Error("No PDF content provided");
     }
 
-    const prompt = `
-      Answer the following question based on the PDF content provided.
-      If you don't find the specific answer in the PDF, say so and provide the closest relevant information.
-      
-      Question: ${question}
-      
-      PDF Content:
-      ${pdfText.substring(0, 15000)}
-    `;
-
-    console.log("Answering question from PDF content...");
+    console.log("Answering question from PDF, content length:", pdfText.length);
+    console.log("Question:", question);
     
-    // In a real app, you would make an API call to Gemini here
-    // For this demo, return a placeholder response
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    // For simplicity, let's extract relevant passages from the PDF that might contain the answer
+    const relevantPassages = findRelevantPassages(question, pdfText);
     
-    return `
-      Based on the resume provided, the individual appears to have extensive experience in software development, with particular expertise in front-end technologies like React, JavaScript, and TypeScript.
+    if (relevantPassages.length === 0) {
+      return `I couldn't find specific information about "${question}" in the document. Please try asking a different question or upload a PDF with relevant content.`;
+    }
+    
+    // Formulate an answer based on relevant passages
+    const answer = `
+      Based on the PDF content, here's what I found regarding "${question}":
 
-      Their professional experience includes working across multiple companies where they contributed to building responsive web applications, optimizing performance, and implementing modern web architectures.
-
-      They have a strong educational background in Computer Science or a related field, complemented by continuous learning and possibly certifications in relevant technologies.
-
-      Key skills highlighted in the resume include:
-      - Modern JavaScript frameworks (React, possibly others like Angular or Vue)
-      - Front-end development
-      - UI/UX implementation
-      - Code optimization
-      - Problem-solving
-      - Team collaboration
-
-      Without more specific questions about particular sections of the resume, I've provided this general overview. If you're interested in specific aspects like their educational background, particular job experiences, or technical skills, please feel free to ask more targeted questions.
+      ${relevantPassages.map((passage, index) => `${index + 1}. ${passage}`).join("\n\n")}
+      
+      I hope this information helps answer your question. If you need more specific details, please let me know.
     `;
+    
+    return answer;
   } catch (error) {
     console.error("Error answering question:", error);
     throw new Error("Failed to answer question from PDF content");
   }
+}
+
+// Helper function to find passages relevant to a question
+function findRelevantPassages(question: string, text: string): string[] {
+  const questionWords = question.toLowerCase().split(/\W+/).filter(word => word.length > 3);
+  const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 20);
+  
+  // Score sentences by number of question words they contain
+  const scoredSentences = sentences.map(sentence => {
+    const sentenceLower = sentence.toLowerCase();
+    let score = 0;
+    for (const word of questionWords) {
+      if (sentenceLower.includes(word)) {
+        score += 1;
+      }
+    }
+    return { sentence, score };
+  });
+  
+  // Get the top scoring sentences
+  const relevantSentences = scoredSentences
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+    .filter(item => item.score > 0)
+    .map(item => item.sentence.trim());
+  
+  return relevantSentences;
 }
 
 // Function to generate mock test from PDF
@@ -123,55 +155,204 @@ export async function generateMockTest(
     }
 
     console.log(`Generating ${difficulty} mock test with ${numQuestions} questions in ${format} format...`);
+    console.log("PDF content length:", pdfText.length);
     
-    // In a real app, you would make an API call to Gemini here
-    // For this demo, generate a structured response with proper MCQs and short answers
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // Extract topics and key concepts from the PDF
+    const topics = extractMainTopics(pdfText);
+    const keyTerms = extractKeyTerms(pdfText);
+    
+    // Generate questions based on actual content
+    const sections = pdfText.split(/\n\s*\n/).filter(s => s.trim().length > 100);
     
     let questions = '';
+    const answers: string[] = [];
     const mcqCount = format === "mcq" ? numQuestions : format === "mixed" ? Math.ceil(numQuestions / 2) : 0;
     const shortAnswerCount = format === "short_answer" ? numQuestions : format === "mixed" ? numQuestions - mcqCount : 0;
     
-    // Generate MCQ questions
+    // Generate multiple choice questions
     for (let i = 0; i < mcqCount; i++) {
-      questions += `
-${i + 1}. What is a key benefit of using React's virtual DOM?
-A. It directly updates the browser's DOM for each state change
-B. It reduces the need for state management
-C. It minimizes unnecessary DOM operations by comparing virtual DOM snapshots
-D. It eliminates the need for JavaScript altogether
+      if (sections.length > 0) {
+        const randomSection = sections[Math.floor(Math.random() * sections.length)];
+        const questionData = generateMCQFromSection(randomSection, i + 1, topics, keyTerms);
+        questions += questionData.question;
+        answers.push(questionData.answer);
+      } else {
+        // Fallback if no good sections found
+        questions += `
+${i + 1}. Which topic is covered in the document?
+A. ${topics[0] || "General information"}
+B. ${topics[1] || "Technical concepts"}
+C. ${topics[2] || "Practical applications"}
+D. ${topics[3] || "Advanced theory"}
 
 `;
+        answers.push(`${i + 1}. A`);
+      }
     }
     
     // Generate short answer questions
     for (let i = mcqCount; i < mcqCount + shortAnswerCount; i++) {
-      questions += `
-${i + 1}. Explain the concept of React Hooks and give an example of when you would use useState.
+      if (sections.length > 0) {
+        const randomSection = sections[Math.floor(Math.random() * sections.length)];
+        const questionData = generateShortAnswerFromSection(randomSection, i + 1, topics, keyTerms);
+        questions += questionData.question;
+        answers.push(`${i + 1}. ${questionData.answer}`);
+      } else {
+        // Fallback if no good sections found
+        questions += `
+${i + 1}. Explain the main concept discussed in this document related to ${topics[0] || "the subject matter"}.
 
 `;
+        answers.push(`${i + 1}. The document discusses ${topics[0] || "various concepts"} and its applications.`);
+      }
     }
     
-    // Generate answers section
-    let answers = '\nANSWERS\n';
-    for (let i = 0; i < mcqCount; i++) {
-      answers += `${i + 1}. C\n`;
-    }
-    
-    for (let i = mcqCount; i < mcqCount + shortAnswerCount; i++) {
-      answers += `${i + 1}. React Hooks are functions that let you use state and other React features without writing a class. useState is used when you need to maintain state in a functional component.\n`;
-    }
-    
-    return `# Web Development Concepts Mock Test (${difficulty.charAt(0).toUpperCase() + difficulty.slice(1)})
+    // Construct the full test
+    return `# ${topics[0] || "Subject Knowledge"} Mock Test (${difficulty.charAt(0).toUpperCase() + difficulty.slice(1)})
 
-This test evaluates your understanding of modern web development concepts and practices as mentioned in the provided document.
+This test evaluates your understanding of concepts covered in the document.
 
 ${questions}
-${answers}`;
+ANSWERS
+${answers.join("\n")}`;
   } catch (error) {
     console.error("Error generating mock test:", error);
     throw new Error("Failed to generate mock test from PDF content");
   }
+}
+
+// Generate a multiple choice question from a section of text
+function generateMCQFromSection(section: string, questionNum: number, topics: string[], keyTerms: string[]): { question: string, answer: string } {
+  // Extract sentences that might contain important information
+  const sentences = section.split(/[.!?]+/).filter(s => s.trim().length > 15 && s.trim().length < 150);
+  
+  if (sentences.length === 0) {
+    // Fallback for no good sentences
+    return {
+      question: `
+${questionNum}. What is one of the main topics discussed in the document?
+A. ${topics[0] || "Topic 1"}
+B. ${topics[1] || "Topic 2"}
+C. ${topics[2] || "Topic 3"}
+D. ${topics[3] || "Topic 4"}
+
+`,
+      answer: "A"
+    };
+  }
+  
+  // Get a random sentence to base the question on
+  const targetSentence = sentences[Math.floor(Math.random() * sentences.length)].trim();
+  const words = targetSentence.split(/\s+/);
+  
+  if (words.length < 5) {
+    // Sentence too short, use fallback
+    return {
+      question: `
+${questionNum}. According to the document, which of the following is true?
+A. ${topics[0]} is a key concept
+B. ${topics[1]} relates to ${topics[2]}
+C. ${keyTerms[0]} is important for understanding ${topics[0]}
+D. All of the above
+
+`,
+      answer: "D"
+    };
+  }
+  
+  // Generate a fill-in-the-blank or concept question
+  const blankWordIndex = Math.floor(Math.random() * (words.length - 3)) + 2;
+  const blankWord = words[blankWordIndex].replace(/[,.;:()]/, '');
+  
+  // If the blank word is too short or a common word, make a concept question instead
+  if (blankWord.length < 4 || ["this", "that", "with", "from", "have", "been"].includes(blankWord.toLowerCase())) {
+    // Create a concept question
+    return {
+      question: `
+${questionNum}. What does the document suggest about ${topics[0] || keyTerms[0] || "the subject"}?
+A. It's fundamental to understanding ${topics[1] || keyTerms[1] || "the topic"}
+B. It's related to ${topics[2] || keyTerms[2] || "key concepts"} 
+C. It requires knowledge of ${topics[3] || keyTerms[3] || "important principles"}
+D. It's a specialized area within ${topics[0] || "the field"}
+
+`,
+      answer: "A"
+    };
+  }
+  
+  // Create the question with meaningful distractors
+  words[blankWordIndex] = "___________";
+  const questionSentence = words.join(" ");
+  
+  // Create options with the correct answer and plausible alternatives
+  const options = [
+    blankWord,
+    keyTerms[0] || topics[1] || "alternative term",
+    keyTerms[1] || topics[2] || "different concept",
+    keyTerms[2] || topics[3] || "another option"
+  ];
+  
+  // Shuffle options
+  for (let i = options.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [options[i], options[j]] = [options[j], options[i]];
+  }
+  
+  // Find the position of the correct answer
+  const correctOptionIndex = options.indexOf(blankWord);
+  const correctOption = String.fromCharCode(65 + correctOptionIndex); // A, B, C, or D
+  
+  return {
+    question: `
+${questionNum}. ${questionSentence}
+A. ${options[0]}
+B. ${options[1]}
+C. ${options[2]}
+D. ${options[3]}
+
+`,
+    answer: correctOption
+  };
+}
+
+// Generate a short answer question from a section of text
+function generateShortAnswerFromSection(section: string, questionNum: number, topics: string[], keyTerms: string[]): { question: string, answer: string } {
+  // Get some key concepts to ask about
+  const mainTopic = topics[0] || keyTerms[0] || "the subject";
+  const relatedTopic = topics[1] || keyTerms[1] || "related concepts";
+  
+  // Pick a question type randomly
+  const questionTypes = [
+    `Explain the relationship between ${mainTopic} and ${relatedTopic} as discussed in the document.`,
+    `What are the key characteristics of ${mainTopic} according to the document?`,
+    `Summarize the main points about ${mainTopic} from the document.`,
+    `How does the document describe the importance of ${mainTopic}?`,
+    `What are the practical applications of ${mainTopic} mentioned in the document?`
+  ];
+  
+  const questionPrompt = questionTypes[Math.floor(Math.random() * questionTypes.length)];
+  
+  // Extract a relevant passage for the answer
+  const sentences = section.split(/[.!?]+/).filter(s => s.trim().length > 0);
+  const relevantSentences = sentences.filter(s => 
+    s.toLowerCase().includes(mainTopic.toLowerCase()) || 
+    s.toLowerCase().includes(relatedTopic.toLowerCase())
+  );
+  
+  let answerText = "The document discusses aspects of this topic, including its definition, applications, and importance in the field.";
+  
+  if (relevantSentences.length > 0) {
+    // Use actual content for the answer
+    answerText = relevantSentences.slice(0, 2).join(". ").trim();
+  }
+  
+  return {
+    question: `
+${questionNum}. ${questionPrompt}
+
+`,
+    answer: answerText
+  };
 }
 
 // Function to prepare interview questions
@@ -181,24 +362,27 @@ export async function prepareInterviewQuestions(pdfText: string, type: string = 
       throw new Error("No PDF content provided");
     }
 
-    console.log(`Preparing ${type} interview questions...`);
+    console.log(`Preparing ${type} interview questions from PDF content...`);
     
-    // In a real app, you would make an API call to Gemini here
-    // For this demo, return placeholder questions
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Extract topics and key concepts from the PDF
+    const topics = extractMainTopics(pdfText);
+    const keyTerms = extractKeyTerms(pdfText);
     
-    return [
-      "Can you explain your experience with React and how you've used it in your previous projects?",
-      "Describe a challenging problem you faced in your last role and how you solved it.",
-      "How do you approach optimizing the performance of a web application?",
-      "What's your experience with state management in React applications?",
-      "How do you stay updated with the latest trends and technologies in web development?",
-      "Can you explain the concept of virtual DOM and its benefits?",
-      "Describe your experience with responsive design and mobile-first approaches.",
-      "How do you handle cross-browser compatibility issues?",
-      "What testing frameworks have you used and what's your approach to testing?",
-      "How do you collaborate with designers and backend developers in your projects?"
+    // Generate questions based on the actual content
+    const interviewQuestions = [
+      `Can you explain what you know about ${topics[0] || keyTerms[0] || "this subject"}?`,
+      `How would you describe the relationship between ${topics[0] || "the main topic"} and ${topics[1] || keyTerms[1] || "related concepts"}?`,
+      `What experience do you have with ${topics[2] || keyTerms[2] || "these technologies or methods"}?`,
+      `Describe a challenging problem you've solved related to ${topics[0] || "this field"}.`,
+      `How do you stay updated with the latest developments in ${topics[0] || "this area"}?`,
+      `What do you think are the most important aspects of ${topics[1] || keyTerms[0] || "this concept"}?`,
+      `Can you explain how ${topics[2] || keyTerms[1] || "these principles"} work in practice?`,
+      `What metrics would you use to measure success in projects related to ${topics[0] || "this field"}?`,
+      `How would you implement a solution involving ${topics[1] || keyTerms[2] || "these technologies"}?`,
+      `Where do you see the future of ${topics[0] || "this field"} heading in the next few years?`
     ];
+    
+    return interviewQuestions;
   } catch (error) {
     console.error("Error preparing interview questions:", error);
     throw new Error("Failed to prepare interview questions");
@@ -223,25 +407,62 @@ export async function evaluateInterviewResponse(question: string, answer: string
 
     console.log("Evaluating interview response...");
     
-    // In a real app, you would make an API call to Gemini here
-    // For this demo, return a placeholder evaluation
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Extract topics for context
+    const topics = extractMainTopics(pdfContent);
     
-    return `
-      That's a good answer! You demonstrated knowledge about React's component-based architecture and reusability benefits.
+    // Check if answer has substance
+    const wordCount = answer.split(/\s+/).length;
+    const hasSpecificTerms = topics.some(topic => answer.toLowerCase().includes(topic.toLowerCase()));
+    
+    let feedback = "";
+    
+    if (wordCount < 10) {
+      feedback = `
+        Your answer was quite brief. Consider expanding your response to show deeper knowledge.
 
-      Strengths:
-      - You provided specific examples of how you've implemented React components
-      - You mentioned key concepts like state management and props
-      - Your explanation was clear and well-structured
+        Strengths:
+        - You provided a direct answer
+        
+        Areas for improvement:
+        - Add more specific details and examples
+        - Reference concepts from the material
+        - Expand on your initial points
+        
+        Overall, try to elaborate more on your answers to demonstrate your knowledge.
+      `;
+    } else if (!hasSpecificTerms && wordCount < 30) {
+      feedback = `
+        Your answer has a good length but could include more specific terminology and concepts.
 
-      Areas for improvement:
-      - Consider mentioning React's virtual DOM as a key performance benefit
-      - You could expand on how React fits into modern web development workflows
-      - Adding a brief mention of your experience with React hooks would strengthen your answer
+        Strengths:
+        - You provided a reasonable explanation
+        - Your answer was structured well
+        
+        Areas for improvement:
+        - Include specific terms like "${topics[0]}" or "${topics[1]}"
+        - Provide concrete examples from your experience
+        - Make connections to other relevant concepts
+        
+        Overall, this was a good start but adding specific terminology would strengthen your response.
+      `;
+    } else {
+      feedback = `
+        That's a good answer! You demonstrated knowledge about the topic and provided sufficient detail.
 
-      Overall, this was a strong response that shows your practical experience with React.
-    `;
+        Strengths:
+        - Your answer was comprehensive and well-structured
+        - You included relevant terminology and concepts
+        - Your explanation showed good understanding of the subject
+        
+        Areas for enhancement:
+        - Consider adding a brief practical example to illustrate your points
+        - You could mention how this relates to ${topics[0] || "the main topic"}
+        
+        Overall, this was a strong response that shows your grasp of the subject matter.
+      `;
+    }
+    
+    return feedback;
   } catch (error) {
     console.error("Error evaluating interview response:", error);
     return "I'm having trouble evaluating your response. Let's move on to the next question.";
@@ -252,10 +473,6 @@ export async function evaluateInterviewResponse(question: string, answer: string
 export async function runQuery(query: string): Promise<string> {
   try {
     console.log("Processing general query:", query);
-    
-    // In a real app, you would make an API call to Gemini here
-    // For this demo, return a placeholder response
-    await new Promise(resolve => setTimeout(resolve, 1000));
     
     return `
       I'm your AI assistant, designed to help with PDF analysis, test generation, and interview practice.

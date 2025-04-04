@@ -1,7 +1,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { extractTextFromPdf } from "../lib/pdfUtils";
+import { extractTextFromPdf, validatePdfFile } from "../lib/pdfUtils";
 import { analyzePdfContent, answerQuestionFromPdf, runQuery } from "../lib/geminiHelpers";
 
 export interface UsePdfProcessorReturn {
@@ -32,8 +32,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
 
   async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.target.files?.[0];
-    if (!file || file.type !== 'application/pdf') {
-      toast.error("Invalid file", { description: "Please upload a PDF file" });
+    if (!file || !validatePdfFile(file)) {
       return;
     }
 
@@ -42,9 +41,21 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       setIsPdfAnalyzed(false);
       setPdfName(file.name);
       
+      // Show processing toast
+      const processingToastId = toast.loading(`Processing ${file.name}`, {
+        description: "Extracting text from PDF...",
+        duration: 10000
+      });
+      
       const text = await extractTextFromPdf(file);
       console.log("PDF text extracted, length:", text.length);
       setPdfContent(text);
+      
+      // Update toast
+      toast.loading(`Analyzing ${file.name}`, {
+        id: processingToastId,
+        description: "Analyzing PDF content..."
+      });
       
       setAiResponse("Analyzing your PDF...");
       
@@ -53,13 +64,16 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       setPdfAnalysis(analysis);
       setIsPdfAnalyzed(true);
       
+      // Success toast
+      toast.success(`${file.name} processed`, {
+        id: processingToastId,
+        description: "PDF has been analyzed and is ready for questions"
+      });
+      
       const successMessage = `I've analyzed "${file.name}". Would you like me to explain the content or do you have specific questions about it?`;
       setAiResponse(successMessage);
       speak(successMessage);
       
-      toast.success("PDF processed successfully", {
-        description: `${file.name} has been analyzed and is ready for questions`
-      });
     } catch (error: any) {
       console.error("Error processing PDF:", error);
       toast.error("Failed to process PDF", { description: error.message });
@@ -104,6 +118,14 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
         return;
       }
 
+      // Show thinking toast for longer queries
+      let thinkingToastId;
+      if (prompt.length > 20) {
+        thinkingToastId = toast.loading("Processing your question", {
+          description: "This may take a moment for complex queries"
+        });
+      }
+      
       let response;
       
       if (pdfContent) {
@@ -124,15 +146,20 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
           !prompt.toLowerCase().includes("interview") &&
           !prompt.toLowerCase().includes("quiz");
         
+        console.log("isPdfQuery:", isPdfQuery, "isPdfSummaryRequest:", isPdfSummaryRequest);
+        
         if (isPdfQuery) {
           if (isPdfSummaryRequest) {
             if (pdfAnalysis) {
+              console.log("Using cached PDF analysis");
               response = pdfAnalysis;
             } else {
+              console.log("Generating new PDF analysis");
               response = await analyzePdfContent(pdfContent);
               setPdfAnalysis(response);
             }
           } else {
+            console.log("Answering specific question from PDF");
             response = await answerQuestionFromPdf(prompt, pdfContent);
           }
         } else {
@@ -144,13 +171,15 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
         response = await runQuery(prompt);
       }
       
+      // Dismiss thinking toast if it exists
+      if (thinkingToastId) {
+        toast.dismiss(thinkingToastId);
+      }
+      
       function cleanText(text: string): string {
         if (!text) return "";
       
         return text
-          .replace(/google/gi, "Tousif")
-          .replace(/satric/gi, "Tousif")
-          .replace(/goolge/gi, "Tousif")
           .replace(/\*\*/g, "") // Removes double asterisks (**)
           .replace(/\*/g, "") // Removes single asterisks (*)
           .replace(/\*\)/g, "") // Removes `*)`
@@ -167,6 +196,10 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       const errorMessage = "Sorry, I couldn't process your request. Please try again.";
       setAiResponse(errorMessage);
       speak(errorMessage);
+      
+      toast.error("Error processing request", {
+        description: "There was a problem generating a response"
+      });
     }
   }
 

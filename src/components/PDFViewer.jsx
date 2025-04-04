@@ -1,3 +1,4 @@
+
 import React, { useContext, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { DataContext } from "../context/UserContext.tsx";
@@ -10,14 +11,16 @@ import {
   Copy, 
   BookOpen, 
   ArrowRight,
-  FileDigit
+  FileDigit,
+  Loader2
 } from "lucide-react";
 import { Document, Page, pdfjs } from 'react-pdf';
 import { toast } from "sonner";
+import 'react-pdf/dist/esm/Page/TextLayer.css';
+import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 
 // Initialize PDF.js worker
-const pdfjsWorker = import('pdfjs-dist/build/pdf.worker.entry');
-pdfjs.GlobalWorkerOptions.workerUrl = pdfjsWorker;
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
 
 const PDFViewer = () => {
   const context = useContext(DataContext);
@@ -25,39 +28,78 @@ const PDFViewer = () => {
   // Add a check for undefined context
   if (!context) {
     return <div className="flex items-center justify-center h-[600px]">
-      <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin mb-4"></div>
+      <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
       <p className="ml-3">Loading PDF viewer...</p>
     </div>;
   }
   
-  const { pdfContent, pdfName, pdfAnalysis } = context;
+  const { pdfContent, pdfName, pdfAnalysis, isProcessingPdf } = context;
   
   const [numPages, setNumPages] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
-  const [pdfData, setPdfData] = useState(null);
   const [scale, setScale] = useState(1.0);
   const [searchText, setSearchText] = useState("");
   const [activeTab, setActiveTab] = useState("preview"); // 'preview' or 'analysis'
-  const [pdfUrl, setPdfUrl] = useState(null);
+  const [pdfBlob, setPdfBlob] = useState(null);
+  const [loadError, setLoadError] = useState(false);
   
-  // Parse the PDF content to display
+  // Create a Blob URL from the PDF content for display
   useEffect(() => {
-    if (pdfContent) {
-      // Attempt to convert text back to PDF for display
-      // Note: This is a simplistic approach, in a real app you'd use the actual PDF file
-      try {
-        const dataUrl = `data:application/pdf;base64,${btoa(unescape(encodeURIComponent(pdfContent)))}`;
-        setPdfUrl(dataUrl);
-      } catch (error) {
-        console.error("Error creating PDF for display:", error);
+    const createPdfBlob = async () => {
+      if (pdfContent) {
+        try {
+          // For demonstration - in a real app, you'd use the actual PDF file
+          // This is a placeholder approach since we only have text content
+          const { jsPDF } = await import('jspdf');
+          const doc = new jsPDF();
+          
+          // Split content into pages (rough approximation)
+          const contentChunks = pdfContent.match(/[\s\S]{1,3000}/g) || [];
+          
+          contentChunks.forEach((chunk, i) => {
+            if (i > 0) doc.addPage();
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(12);
+            
+            // Add text with word wrap
+            const splitText = doc.splitTextToSize(chunk, 180);
+            doc.text(splitText, 15, 20);
+          });
+          
+          const blob = doc.output('blob');
+          const url = URL.createObjectURL(blob);
+          
+          setPdfBlob(url);
+          setLoadError(false);
+        } catch (error) {
+          console.error("Error creating PDF blob:", error);
+          setLoadError(true);
+        }
+      } else {
+        setPdfBlob(null);
       }
-    }
+    };
+    
+    createPdfBlob();
+    
+    // Cleanup
+    return () => {
+      if (pdfBlob) URL.revokeObjectURL(pdfBlob);
+    };
   }, [pdfContent]);
   
   // Handle successful PDF load
   const onDocumentLoadSuccess = ({ numPages }) => {
     setNumPages(numPages);
     setPageNumber(1);
+    setLoadError(false);
+    console.log("PDF loaded successfully with", numPages, "pages");
+  };
+  
+  // Handle PDF load error
+  const onDocumentLoadError = (error) => {
+    console.error("Error loading PDF:", error);
+    setLoadError(true);
   };
   
   // Change page controls
@@ -167,32 +209,20 @@ const PDFViewer = () => {
                     >
                       <ZoomIn className="w-4 h-4" />
                     </button>
-                    
-                    <button
-                      onClick={() => {
-                        const link = document.createElement('a');
-                        link.href = pdfUrl;
-                        link.download = pdfName || 'document.pdf';
-                        link.click();
-                      }}
-                      className="ml-2 px-3 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 text-sm flex items-center gap-1.5"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>Download</span>
-                    </button>
                   </div>
                 </div>
                 
                 {/* PDF display */}
                 <div className="flex-grow overflow-auto bg-white rounded-lg shadow-inner flex justify-center p-4">
                   <div className="pdf-container max-w-full">
-                    {pdfUrl ? (
+                    {pdfBlob ? (
                       <Document
-                        file={pdfUrl}
+                        file={pdfBlob}
                         onLoadSuccess={onDocumentLoadSuccess}
+                        onLoadError={onDocumentLoadError}
                         loading={
                           <div className="flex flex-col items-center justify-center h-[600px]">
-                            <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin mb-4"></div>
+                            <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
                             <p>Loading PDF...</p>
                           </div>
                         }
@@ -220,17 +250,32 @@ const PDFViewer = () => {
                           renderAnnotationLayer={true}
                         />
                       </Document>
+                    ) : loadError ? (
+                      <div className="flex flex-col items-center justify-center h-[600px] text-center p-4">
+                        <FileText className="w-12 h-12 text-red-400 mb-4" />
+                        <h3 className="text-lg font-medium mb-2">Error displaying PDF</h3>
+                        <p className="text-sm text-muted-foreground mb-4">
+                          We couldn't generate a preview, but you can still view the text content below.
+                        </p>
+                        
+                        <div className="max-h-[400px] overflow-auto w-full p-4 border border-gray-200 rounded-lg bg-gray-50 text-left">
+                          <pre className="whitespace-pre-wrap text-sm">
+                            {pdfContent.substring(0, 2000)}
+                            {pdfContent.length > 2000 && " [... content truncated ...]"}
+                          </pre>
+                        </div>
+                      </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center h-[600px]">
-                        <FileText className="w-12 h-12 text-muted-foreground mb-4" />
-                        <p>PDF content not available for preview</p>
+                        <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
+                        <p>Processing PDF content...</p>
                       </div>
                     )}
                   </div>
                 </div>
                 
                 {/* Page controls */}
-                {numPages && (
+                {numPages && !loadError && (
                   <div className="flex items-center justify-center gap-4 mt-4">
                     <button
                       onClick={() => changePage(-1)}
@@ -278,26 +323,35 @@ const PDFViewer = () => {
                 
                 <div className="prose prose-sm max-w-none">
                   <h2 className="text-xl font-medium mb-4">PDF Analysis</h2>
-                  <div className="whitespace-pre-line">{pdfAnalysis}</div>
+                  {isProcessingPdf ? (
+                    <div className="flex items-center gap-3">
+                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                      <span>Analyzing PDF content...</span>
+                    </div>
+                  ) : (
+                    <div className="whitespace-pre-line">{pdfAnalysis}</div>
+                  )}
                 </div>
                 
                 {/* Call to action */}
-                <div className="mt-8 p-4 bg-primary/5 rounded-lg border border-primary/10">
-                  <h3 className="font-medium text-primary mb-2">What's next?</h3>
-                  <p className="text-sm mb-3">
-                    Now that you've analyzed your PDF, you can:
-                  </p>
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      onClick={() => window.location.hash = "#test"}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary rounded-md text-sm hover:bg-primary/20"
-                    >
-                      <BookOpen className="w-4 h-4" />
-                      <span>Take a Mock Test</span>
-                      <ArrowRight className="w-3 h-3" />
-                    </button>
+                {!isProcessingPdf && (
+                  <div className="mt-8 p-4 bg-primary/5 rounded-lg border border-primary/10">
+                    <h3 className="font-medium text-primary mb-2">What's next?</h3>
+                    <p className="text-sm mb-3">
+                      Now that you've analyzed your PDF, you can:
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        onClick={() => window.location.hash = "#test"}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary rounded-md text-sm hover:bg-primary/20"
+                      >
+                        <BookOpen className="w-4 h-4" />
+                        <span>Take a Mock Test</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-16">

@@ -3,8 +3,8 @@ import * as pdfjs from 'pdfjs-dist';
 import { toast } from "sonner";
 
 // Initialize PDF.js worker
-const pdfjsWorker = await import('pdfjs-dist/build/pdf.worker.entry');
-pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+const pdfjsWorker = import('pdfjs-dist/build/pdf.worker.entry');
+pdfjs.GlobalWorkerOptions.workerUrl = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
 
 /**
  * Extracts text from a PDF file
@@ -41,6 +41,7 @@ export async function extractTextFromPdf(file: File): Promise<string> {
         const textContent = await page.getTextContent();
         const pageText = textContent.items.map((item: any) => item.str).join(' ');
         fullText += pageText + '\n\n';
+        console.log(`Extracted page ${i}: ${pageText.substring(0, 50)}...`);
       } catch (pageError) {
         console.error(`Error processing page ${i}:`, pageError);
       }
@@ -51,7 +52,7 @@ export async function extractTextFromPdf(file: File): Promise<string> {
       toast.dismiss(toastId);
     }
     
-    console.log("PDF extraction completed successfully");
+    console.log("PDF extraction completed successfully, length:", fullText.length);
     return fullText;
   } catch (error) {
     console.error("Error extracting text from PDF:", error);
