@@ -19,6 +19,11 @@ const Index = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("chat");
   
+  // Always declare this value at the top level, not conditionally
+  const showPdfNotification = context && 
+    (activeTab === "pdf" || activeTab === "test" || activeTab === "interview") && 
+    !context.pdfContent;
+  
   useEffect(() => {
     // Simulate loading completion
     const timer = setTimeout(() => {
@@ -27,6 +32,27 @@ const Index = () => {
     
     return () => clearTimeout(timer);
   }, []);
+  
+  // Handle mock test generation - always declare this effect
+  useEffect(() => {
+    if (context && context.mockTest && activeTab === "chat") {
+      setActiveTab("test");
+      toast.success("Mock test generated", {
+        description: "Your personalized test is ready to take"
+      });
+    }
+  }, [context?.mockTest, activeTab]);
+
+  // Handle speech recognition - always declare this effect
+  useEffect(() => {
+    if (context && context.recognizedSpeech) {
+      const speechEvent = new CustomEvent('speechRecognition', {
+        detail: { transcript: context.recognizedSpeech }
+      });
+      
+      window.dispatchEvent(speechEvent);
+    }
+  }, [context?.recognizedSpeech]);
   
   if (loading) {
     return (
@@ -61,30 +87,6 @@ const Index = () => {
   }
   
   const { pdfContent, mockTest, recognizedSpeech } = context;
-  
-  // Always declare hooks unconditionally at the top
-  const showPdfNotification = (activeTab === "pdf" || activeTab === "test" || activeTab === "interview") && !pdfContent;
-
-  // Switch to test tab when a mock test is generated
-  useEffect(() => {
-    if (mockTest && activeTab === "chat") {
-      setActiveTab("test");
-      toast.success("Mock test generated", {
-        description: "Your personalized test is ready to take"
-      });
-    }
-  }, [mockTest, activeTab]);
-
-  // Handle speech recognition events
-  useEffect(() => {
-    if (recognizedSpeech) {
-      const speechEvent = new CustomEvent('speechRecognition', {
-        detail: { transcript: recognizedSpeech }
-      });
-      
-      window.dispatchEvent(speechEvent);
-    }
-  }, [recognizedSpeech]);
 
   return (
     <main className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-slate-100 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-blue-950">
