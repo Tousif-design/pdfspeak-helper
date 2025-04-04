@@ -33,7 +33,9 @@ const PdfNotification: React.FC<PdfNotificationProps> = ({ showPdfNotification, 
           <button 
             onClick={() => {
               setActiveTab("chat");
-              document.getElementById('pdf-upload')?.click();
+              setTimeout(() => {
+                document.getElementById('pdf-upload')?.click();
+              }, 100);
             }}
             className="flex-shrink-0 bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-2 rounded-md text-white font-medium flex items-center gap-2 hover:from-amber-600 hover:to-amber-700 transition-all shadow-sm"
           >

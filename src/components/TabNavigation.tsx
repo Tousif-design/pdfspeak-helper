@@ -18,6 +18,15 @@ const TabNavigation: React.FC<TabNavigationProps> = ({ activeTab, setActiveTab, 
     { id: "study", label: "Study Tools", icon: <Brain className="w-4 h-4" /> }
   ];
 
+  const handleTabClick = (tabId: string, isDisabled: boolean | undefined) => {
+    if (isDisabled) {
+      // If tab requires PDF but none is uploaded, show upload dialog
+      document.getElementById('pdf-upload')?.click();
+    } else {
+      setActiveTab(tabId);
+    }
+  };
+
   return (
     <div className="flex justify-center mb-8 relative">
       <div className="glass-card flex rounded-full overflow-hidden p-1.5 shadow-xl relative z-10 bg-white/70 backdrop-blur-md border border-white/20">
@@ -26,13 +35,12 @@ const TabNavigation: React.FC<TabNavigationProps> = ({ activeTab, setActiveTab, 
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => !tab.disabled && setActiveTab(tab.id)}
-            disabled={tab.disabled}
+            onClick={() => handleTabClick(tab.id, tab.disabled)}
             className={`relative z-10 flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium rounded-full transition-all duration-300 ${
               activeTab === tab.id
                 ? "bg-gradient-to-r from-primary to-primary/90 text-white shadow-md" 
                 : "text-foreground hover:bg-white/80 hover:text-primary"
-            } ${tab.disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+            } ${tab.disabled ? "opacity-50" : ""}`}
           >
             {activeTab === tab.id && (
               <motion.span 

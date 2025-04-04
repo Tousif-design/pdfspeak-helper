@@ -34,8 +34,7 @@ const ChatSection: React.FC<ChatSectionProps> = ({ setActiveTab }) => {
 
   const handleStopConversation = () => {
     stopSpeaking();
-    toast({
-      title: "Conversation paused",
+    toast("Conversation paused", {
       description: "Voice output has been stopped",
     });
   };
@@ -43,8 +42,7 @@ const ChatSection: React.FC<ChatSectionProps> = ({ setActiveTab }) => {
   const handleResumeConversation = () => {
     if (aiResponse) {
       speak(aiResponse);
-      toast({
-        title: "Conversation resumed",
+      toast("Conversation resumed", {
         description: "Voice output has been resumed",
       });
     }
