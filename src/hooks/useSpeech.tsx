@@ -18,6 +18,8 @@ export function useSpeech(): UseSpeechReturn {
   const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
   const [recognizedSpeech, setRecognizedSpeech] = useState("");
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const maxReconnectAttempts = 3;
 
   function stopSpeaking(): void {
     if (speaking) {
@@ -54,6 +56,7 @@ export function useSpeech(): UseSpeechReturn {
     utterance.lang = "en-US";
     utteranceRef.current = utterance;
     
+    // Get available voices and select a suitable one
     const voices = window.speechSynthesis.getVoices();
     if (voices.length) {
       const englishVoice = voices.find(voice => 
@@ -63,15 +66,16 @@ export function useSpeech(): UseSpeechReturn {
       utterance.voice = englishVoice;
     }
     
-    if (cleanedText.length > 500) {
+    // Handle long texts by chunking
+    if (cleanedText.length > 200) {
       const sentences = cleanedText.match(/[^.!?]+[.!?]+/g) || [];
       
-      if (sentences.length > 5) {
+      if (sentences.length > 3) {
         let chunks: string[] = [];
         let currentChunk = "";
         
         sentences.forEach(sentence => {
-          if (currentChunk.length + sentence.length < 500) {
+          if (currentChunk.length + sentence.length < 200) {
             currentChunk += sentence;
           } else {
             chunks.push(currentChunk);
@@ -89,13 +93,18 @@ export function useSpeech(): UseSpeechReturn {
         utterance.onstart = () => {
           setSpeaking(true);
           if (isListening && recognition) {
-            recognition.stop();
-            setIsListening(false);
+            try {
+              recognition.stop();
+              setIsListening(false);
+            } catch (error) {
+              console.error("Error stopping recognition during speech:", error);
+            }
           }
         };
         
         utterance.onend = () => {
           if (chunkIndex < chunks.length) {
+            console.log(`Speaking chunk ${chunkIndex+1}/${chunks.length}`);
             const nextUtterance = new SpeechSynthesisUtterance(chunks[chunkIndex]);
             nextUtterance.volume = 1;
             nextUtterance.rate = 1.0;
@@ -109,15 +118,20 @@ export function useSpeech(): UseSpeechReturn {
             window.speechSynthesis.speak(nextUtterance);
           } else {
             setSpeaking(false);
+            console.log("Finished speaking all chunks");
             
-            if (recognition && !isListening) {
-              try {
-                setIsListening(true);
-                recognition.start();
-              } catch (error) {
-                console.error("Error restarting recognition:", error);
+            // Wait a short delay before reactivating listening
+            setTimeout(() => {
+              if (recognition && !isListening) {
+                try {
+                  setIsListening(true);
+                  recognition.start();
+                  console.log("Reactivated listening after speech");
+                } catch (error) {
+                  console.error("Error restarting recognition after speech:", error);
+                }
               }
-            }
+            }, 500);
           }
         };
         
@@ -129,146 +143,101 @@ export function useSpeech(): UseSpeechReturn {
     utterance.onstart = () => {
       setSpeaking(true);
       if (isListening && recognition) {
-        recognition.stop();
-        setIsListening(false);
+        try {
+          recognition.stop();
+          setIsListening(false);
+        } catch (error) {
+          console.error("Error stopping recognition during speech:", error);
+        }
       }
     };
 
     utterance.onend = () => {
       setSpeaking(false);
-      if (recognition && !isListening) {
-        try {
-          setIsListening(true);
-          recognition.start();
-        } catch (error) {
-          console.error("Error restarting recognition:", error);
-          if (recognition) {
-            recognition.stop();
-            setTimeout(() => {
-              setIsListening(true);
-              try {
-                recognition.start();
-              } catch (innerError) {
-                console.error("Failed to restart recognition after timeout:", innerError);
-              }
-            }, 300);
+      console.log("Speech ended, attempting to restart recognition");
+      
+      // Wait a short delay before reactivating listening
+      setTimeout(() => {
+        if (recognition && !isListening) {
+          try {
+            setIsListening(true);
+            recognition.start();
+            console.log("Recognition restarted after speech end");
+          } catch (error) {
+            console.error("Error restarting recognition after speech:", error);
+            resetRecognition();
           }
         }
-      }
+      }, 500);
     };
 
-    window.speechSynthesis.speak(utterance);
+    try {
+      window.speechSynthesis.speak(utterance);
+    } catch (error) {
+      console.error("Error during speech synthesis:", error);
+      setSpeaking(false);
+      toast.error("Speech synthesis error", {
+        description: "Unable to speak the response"
+      });
+    }
   }
 
+  // Function to reset and recreate recognition
+  function resetRecognition() {
+    if (recognition) {
+      try {
+        recognition.stop();
+      } catch (e) {
+        console.log("Error stopping recognition during reset:", e);
+      }
+    }
+    
+    reconnectAttemptsRef.current += 1;
+    if (reconnectAttemptsRef.current <= maxReconnectAttempts) {
+      console.log(`Attempting to reset recognition (${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
+      setupSpeechRecognition();
+    } else {
+      console.error("Max reconnection attempts reached");
+      toast.error("Voice recognition unavailable", {
+        description: "Please refresh the page to try again"
+      });
+    }
+  }
+
+  // Initialize voices and speech synthesis
   useEffect(() => {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       const loadVoices = () => {
         const voices = window.speechSynthesis.getVoices();
         if (voices.length > 0) {
-          console.log("Voices loaded:", voices.length);
+          console.log(`${voices.length} voices loaded`);
         }
       };
       
       loadVoices();
-      
       window.speechSynthesis.onvoiceschanged = loadVoices;
       
-      const speechSynthesisUtteranceChunkSize = 150;
-      const originalSpeechSynthesisSpeak = window.speechSynthesis.speak;
+      // Periodically check speech synthesis state
+      const intervalId = setInterval(() => {
+        if (speaking && utteranceRef.current) {
+          if (window.speechSynthesis.paused) {
+            console.log("Speech synthesis was paused, resuming...");
+            window.speechSynthesis.resume();
+          }
+        }
+      }, 1000);
       
-      window.speechSynthesis.speak = function(utterance) {
-        originalSpeechSynthesisSpeak.call(window.speechSynthesis, utterance);
+      return () => {
+        clearInterval(intervalId);
       };
     }
-  }, []);
+  }, [speaking]);
 
+  // Setup speech recognition
   useEffect(() => {
-    let cleanup = false;
-    
-    const safelyStartRecognition = (rec: SpeechRecognition) => {
-      if (cleanup) return;
-      
-      try {
-        if (rec.state !== 'active') {
-          rec.start();
-          console.log("Speech recognition started");
-          setIsListening(true);
-        }
-      } catch (error) {
-        console.error("Error starting recognition:", error);
-        if (!(error instanceof DOMException && error.name === 'InvalidStateError')) {
-          toast.error("Voice recognition error", { 
-            description: "Please try again or type your question" 
-          });
-        }
-      }
-    };
-    
-    function setupSpeechRecognition() {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SpeechRecognition && !cleanup) {
-        const recognitionInstance = new SpeechRecognition();
-        recognitionInstance.continuous = true;
-        recognitionInstance.interimResults = false;
-        recognitionInstance.lang = "en-US";
-        recognitionInstance.maxAlternatives = 1;
-  
-        recognitionInstance.onstart = () => {
-          console.log("Speech recognition started...");
-          setIsListening(true);
-        };
-  
-        recognitionInstance.onresult = (event) => {
-          const finalSpeech = event.results[event.results.length - 1][0].transcript;
-          console.log("Recognized speech:", finalSpeech);
-          
-          setRecognizedSpeech(finalSpeech);
-        };
-  
-        recognitionInstance.onend = () => {
-          console.log("Speech recognition stopped...");
-          setIsListening(false);
-          
-          if (!cleanup && !speaking) {
-            setTimeout(() => {
-              if (!cleanup && !speaking) {
-                safelyStartRecognition(recognitionInstance);
-              }
-            }, 1000);
-          }
-        };
-  
-        recognitionInstance.onerror = (event) => {
-          console.error("Recognition error:", event.error);
-          
-          if (event.error !== 'aborted' && !cleanup) {
-            toast.error("Voice recognition error", { 
-              description: "Please try again or type your question" 
-            });
-          }
-        };
-  
-        setRecognition(recognitionInstance);
-        
-        setTimeout(() => {
-          if (!cleanup) {
-            safelyStartRecognition(recognitionInstance);
-          }
-        }, 1000);
-      } else if (!SpeechRecognition) {
-        console.warn("Speech Recognition is not supported in this browser.");
-        if (!cleanup) {
-          toast.error("Voice features unavailable", { 
-            description: "Your browser doesn't support speech recognition" 
-          });
-        }
-      }
-    }
-    
     setupSpeechRecognition();
     
     return () => {
-      cleanup = true;
       if (recognition) {
         try {
           recognition.stop();
@@ -279,7 +248,88 @@ export function useSpeech(): UseSpeechReturn {
       
       stopSpeaking();
     };
-  }, [speaking]);
+  }, []);
+
+  function setupSpeechRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognitionInstance = new SpeechRecognition();
+      recognitionInstance.continuous = true;
+      recognitionInstance.interimResults = false;
+      recognitionInstance.lang = "en-US";
+      recognitionInstance.maxAlternatives = 1;
+
+      recognitionInstance.onstart = () => {
+        console.log("Speech recognition started...");
+        setIsListening(true);
+        reconnectAttemptsRef.current = 0; // Reset counter on successful start
+      };
+
+      recognitionInstance.onresult = (event) => {
+        const finalSpeech = event.results[event.results.length - 1][0].transcript;
+        console.log("Recognized speech:", finalSpeech);
+        
+        setRecognizedSpeech(finalSpeech);
+      };
+
+      recognitionInstance.onend = () => {
+        console.log("Speech recognition stopped...");
+        setIsListening(false);
+        
+        if (!speaking) {
+          setTimeout(() => {
+            if (!speaking) {
+              try {
+                recognitionInstance.start();
+                console.log("Auto-restarting recognition after end");
+              } catch (error) {
+                console.error("Failed to auto-restart recognition:", error);
+                resetRecognition();
+              }
+            }
+          }, 1000);
+        }
+      };
+
+      recognitionInstance.onerror = (event) => {
+        console.error("Recognition error:", event.error);
+        
+        // Handle various error types
+        if (event.error === 'not-allowed') {
+          toast.error("Microphone access denied", { 
+            description: "Please allow microphone access in your browser settings" 
+          });
+        } else if (event.error !== 'aborted') {
+          toast.error("Voice recognition error", { 
+            description: "Please try again or type your question" 
+          });
+          resetRecognition();
+        }
+      };
+
+      setRecognition(recognitionInstance);
+      
+      try {
+        recognitionInstance.start();
+        console.log("Initial recognition start attempt");
+      } catch (error) {
+        console.error("Error during initial recognition start:", error);
+        setTimeout(() => {
+          try {
+            recognitionInstance.start();
+            console.log("Retry recognition start after delay");
+          } catch (retryError) {
+            console.error("Retry recognition start failed:", retryError);
+          }
+        }, 1000);
+      }
+    } else {
+      console.warn("Speech Recognition is not supported in this browser.");
+      toast.error("Voice features unavailable", { 
+        description: "Your browser doesn't support speech recognition" 
+      });
+    }
+  }
 
   function toggleRecognition(): void {
     if (!recognition) {
@@ -290,27 +340,28 @@ export function useSpeech(): UseSpeechReturn {
     }
     
     if (isListening) {
-      console.log("Stopping recognition...");
+      console.log("Manually stopping recognition...");
       try {
         recognition.stop();
         setIsListening(false);
+        toast.success("Voice recognition paused");
       } catch (error) {
         console.error("Error stopping recognition:", error);
       }
     } else {
-      console.log("Starting recognition...");
+      console.log("Manually starting recognition...");
       try {
         recognition.start();
         setIsListening(true);
+        toast.success("Voice recognition activated");
       } catch (error) {
         console.error("Error starting recognition:", error);
         
         if (error instanceof DOMException && error.name === 'InvalidStateError') {
           setIsListening(true);
+          toast.info("Recognition is already active");
         } else {
-          toast.error("Couldn't start voice recognition", {
-            description: "Please try again"
-          });
+          resetRecognition();
         }
       }
     }

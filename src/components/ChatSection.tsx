@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { DataContext } from "../context/UserContext";
 import { FileText, BookOpen, Bot, Upload, PauseCircle, PlayCircle } from "lucide-react";
 import ExampleQueries from './ExampleQueries';
-import { useToast } from "../hooks/use-toast";
+import { toast } from "sonner";
 
 interface ChatSectionProps {
   setActiveTab: (tab: string) => void;
@@ -12,7 +12,6 @@ interface ChatSectionProps {
 
 const ChatSection: React.FC<ChatSectionProps> = ({ setActiveTab }) => {
   const context = useContext(DataContext);
-  const { toast } = useToast();
   
   if (!context) {
     return <div>Loading context...</div>;
