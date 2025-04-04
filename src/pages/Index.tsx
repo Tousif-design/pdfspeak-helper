@@ -1,6 +1,6 @@
 
 import React, { useContext, useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { DataContext } from "../context/UserContext";
 import Hero from "../components/Hero";
 import PDFViewer from "../components/PDFViewer";
@@ -17,6 +17,7 @@ import { Loader2 } from "lucide-react";
 const Index = () => {
   const context = useContext(DataContext);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("chat");
   
   useEffect(() => {
     // Simulate loading completion
@@ -59,14 +60,9 @@ const Index = () => {
     );
   }
   
-  const { 
-    pdfContent, 
-    mockTest,
-    recognizedSpeech
-  } = context;
+  const { pdfContent, mockTest, recognizedSpeech } = context;
   
-  const [activeTab, setActiveTab] = React.useState("chat");
-  
+  // Always declare hooks unconditionally at the top
   const showPdfNotification = (activeTab === "pdf" || activeTab === "test" || activeTab === "interview") && !pdfContent;
 
   // Switch to test tab when a mock test is generated
@@ -91,10 +87,12 @@ const Index = () => {
   }, [recognizedSpeech]);
 
   return (
-    <main className="min-h-screen flex flex-col bg-gradient-to-b from-background via-background to-secondary/20">
+    <main className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-slate-100 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-blue-950">
+      <div className="absolute inset-0 bg-[url('/grid-pattern.svg')] opacity-5 z-0 pointer-events-none"></div>
+      
       <Hero />
       
-      <div className="container px-4 py-8 flex-1 flex flex-col">
+      <div className="container px-4 py-8 flex-1 flex flex-col relative z-10">
         <TabNavigation 
           activeTab={activeTab} 
           setActiveTab={setActiveTab} 
@@ -107,22 +105,20 @@ const Index = () => {
         />
         
         <div className="flex-1 flex flex-col">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.3 }}
-              className="mb-20 flex-1"
-            >
-              {activeTab === "chat" && <ChatSection setActiveTab={setActiveTab} />}
-              {activeTab === "pdf" && <PDFViewer />}
-              {activeTab === "test" && <MockTestGenerator />}
-              {activeTab === "interview" && <InterviewSimulator />}
-              {activeTab === "study" && <StudyTools />}
-            </motion.div>
-          </AnimatePresence>
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3 }}
+            className="mb-20 flex-1"
+          >
+            {activeTab === "chat" && <ChatSection setActiveTab={setActiveTab} />}
+            {activeTab === "pdf" && <PDFViewer />}
+            {activeTab === "test" && <MockTestGenerator />}
+            {activeTab === "interview" && <InterviewSimulator />}
+            {activeTab === "study" && <StudyTools />}
+          </motion.div>
         </div>
         
         {activeTab === "chat" && <ChatInput />}
