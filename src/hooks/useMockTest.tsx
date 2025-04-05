@@ -35,9 +35,37 @@ export function useMockTest(): UseMockTestReturn {
         description: "Creating questions based on your PDF content"
       });
       
-      // Explicitly specify the format as MCQ with options
-      const format = `multiple choice questions with A, B, C, D options for each question`;
-      const response = await generateMockTest(pdfContent, "comprehensive", 10, format);
+      // Very explicit format for the MCQ structure
+      const mcqFormat = `
+      Generate 10 multiple choice questions with EXACTLY 4 options labeled A, B, C, D for each question.
+      Use this exact format:
+      
+      1. [Question text]
+      A) [Option A text]
+      B) [Option B text]
+      C) [Option C text]
+      D) [Option D text]
+      
+      2. [Question text]
+      A) [Option A text]
+      B) [Option B text]
+      C) [Option C text]
+      D) [Option D text]
+      
+      And so on...
+      
+      After ALL questions, include an ANSWERS section in this exact format:
+      
+      ANSWERS:
+      1. [Correct letter (A, B, C, or D)]
+      2. [Correct letter (A, B, C, or D)]
+      
+      And so on...
+      
+      Make sure all questions are specific to the PDF content provided.
+      `;
+      
+      const response = await generateMockTest(pdfContent, "comprehensive", 10, mcqFormat);
       console.log("Mock test generated, length:", response.length);
       
       if (!response || response.length < 100) {
@@ -51,25 +79,47 @@ export function useMockTest(): UseMockTestReturn {
       setMockTest(response);
       
       // Improved regex to extract MCQ answers
-      const answerSection = response.match(/ANSWERS[\s\S]*$/i);
+      const answerSection = response.match(/ANSWERS:?[\s\S]*$/i);
       if (answerSection) {
-        // Look for answers in format like "1. A" or "1. Option A" or just numbered answers
-        const answers = answerSection[0].match(/\d+\.\s*([A-D]|Option [A-D]|.+)/gi) || [];
+        // Specifically look for answers in format like "1. A" or "1. B"
+        const answers = answerSection[0].match(/\d+\.\s*([A-D])/gi) || [];
         const cleanedAnswers = answers.map(a => {
-          // Extract just the answer part (A, B, C, D)
-          const match = a.match(/\d+\.\s*([A-D]|Option ([A-D]))/i);
+          // Extract just the letter (A, B, C, D)
+          const match = a.match(/\d+\.\s*([A-D])/i);
           if (match) {
-            // Return just the letter (A, B, C, D)
-            return match[2] || match[1];
+            return match[1].toUpperCase(); // Normalize to uppercase
           }
-          // For non-standard answers, return full text after number
-          const fullMatch = a.match(/\d+\.\s*(.+)/);
-          return fullMatch ? fullMatch[1].trim() : a.trim();
+          return ""; // Fallback
         });
         
         console.log("Extracted answers:", cleanedAnswers);
-        setMockTestAnswers(cleanedAnswers);
-        setUserAnswers(new Array(cleanedAnswers.length).fill(''));
+        
+        // Verify we have the correct number of answers
+        if (cleanedAnswers.length > 0) {
+          setMockTestAnswers(cleanedAnswers);
+          setUserAnswers(new Array(cleanedAnswers.length).fill(''));
+        } else {
+          console.error("Could not extract answers in expected format");
+          // Try a more forgiving approach as fallback
+          const fallbackAnswers = answerSection[0].split('\n')
+            .filter(line => /\d+\./.test(line))
+            .map(line => {
+              const letter = line.match(/[A-D]/i);
+              return letter ? letter[0].toUpperCase() : "";
+            })
+            .filter(a => a);
+            
+          console.log("Fallback answers:", fallbackAnswers);
+          if (fallbackAnswers.length > 0) {
+            setMockTestAnswers(fallbackAnswers);
+            setUserAnswers(new Array(fallbackAnswers.length).fill(''));
+          } else {
+            toast.error("Problem with test answers", {
+              id: loadingToastId,
+              description: "Could not extract answer key properly"
+            });
+          }
+        }
       } else {
         console.error("Could not find answer section in generated test");
         toast.error("Problem with test generation", {
@@ -106,18 +156,14 @@ export function useMockTest(): UseMockTestReturn {
     let correctCount = 0;
     for (let i = 0; i < answers.length; i++) {
       // Case insensitive comparison for multiple choice answers
-      const userAnswer = answers[i]?.trim().toLowerCase();
-      const correctAnswer = mockTestAnswers[i]?.trim().toLowerCase();
+      const userAnswer = answers[i]?.trim().toUpperCase();
+      const correctAnswer = mockTestAnswers[i]?.trim().toUpperCase();
+      
+      console.log(`Question ${i+1}: User answer: ${userAnswer}, Correct: ${correctAnswer}`);
       
       if (userAnswer && correctAnswer) {
-        // For multiple choice, just compare the letter
-        if (correctAnswer.length === 1 && correctAnswer.match(/[a-d]/i)) {
-          if (userAnswer === correctAnswer || userAnswer === correctAnswer.toUpperCase()) {
-            correctCount++;
-          }
-        } 
-        // For short answers, check if key parts match
-        else if (userAnswer.includes(correctAnswer) || correctAnswer.includes(userAnswer)) {
+        // Just compare the letter for multiple choice
+        if (userAnswer === correctAnswer) {
           correctCount++;
         }
       }

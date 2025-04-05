@@ -220,11 +220,9 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       console.log("AI Response:", cleanedResponse.substring(0, 100) + "...");
       setAiResponse(cleanedResponse);
       
-      // Explicitly speak the response
-      if (!speaking) {
-        console.log("Speaking response...");
-        speak(cleanedResponse);
-      }
+      // Explicitly speak the response - don't check if already speaking, just start
+      console.log("Speaking response...");
+      speak(cleanedResponse);
     } catch (error) {
       console.error("Error in AI response:", error);
       const errorMessage = "Sorry, I couldn't process your request. Please try again.";

@@ -20,11 +20,15 @@ export function useSpeech(): UseSpeechReturn {
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const maxReconnectAttempts = 5;
+  const speechQueueRef = useRef<string[]>([]);
+  const isSpeakingRef = useRef(false);
 
   function stopSpeaking(): void {
     if (speaking) {
       window.speechSynthesis.cancel();
       setSpeaking(false);
+      isSpeakingRef.current = false;
+      speechQueueRef.current = [];
       console.log("Speech stopped by user");
     }
   }
@@ -44,9 +48,37 @@ export function useSpeech(): UseSpeechReturn {
 
   function speak(text: string): void {
     if (!text) return;
-    console.log("Speaking:", text.substring(0, 50) + "...");
-
-    stopSpeaking();
+    console.log("Speaking request:", text.substring(0, 50) + "...");
+    
+    // Add to queue and process
+    speechQueueRef.current.push(text);
+    processSpeechQueue();
+  }
+  
+  function processSpeechQueue(): void {
+    // If already speaking or queue is empty, don't do anything
+    if (isSpeakingRef.current || speechQueueRef.current.length === 0) {
+      return;
+    }
+    
+    // Get the next text to speak
+    const text = speechQueueRef.current.shift();
+    if (!text) return;
+    
+    console.log("Processing speech from queue:", text.substring(0, 50) + "...");
+    isSpeakingRef.current = true;
+    setSpeaking(true);
+    
+    // If recognition is active, stop it while speaking
+    if (isListening && recognition) {
+      try {
+        recognition.stop();
+        setIsListening(false);
+        console.log("Paused recognition for speech");
+      } catch (error) {
+        console.error("Error stopping recognition:", error);
+      }
+    }
 
     let cleanedText = cleanText(text);
     
@@ -86,7 +118,7 @@ export function useSpeech(): UseSpeechReturn {
     }
     
     // Handle long texts by chunking
-    if (cleanedText.length > 200) {
+    if (cleanedText.length > 150) {
       const sentences = cleanedText.match(/[^.!?]+[.!?]+/g) || [];
       
       if (sentences.length > 3) {
@@ -94,7 +126,7 @@ export function useSpeech(): UseSpeechReturn {
         let currentChunk = "";
         
         sentences.forEach(sentence => {
-          if (currentChunk.length + sentence.length < 200) {
+          if (currentChunk.length + sentence.length < 150) {
             currentChunk += sentence;
           } else {
             chunks.push(currentChunk);
@@ -109,19 +141,6 @@ export function useSpeech(): UseSpeechReturn {
         utterance.text = chunks[0];
         let chunkIndex = 1;
         
-        utterance.onstart = () => {
-          setSpeaking(true);
-          console.log("Started speaking, pausing recognition...");
-          if (isListening && recognition) {
-            try {
-              recognition.stop();
-              setIsListening(false);
-            } catch (error) {
-              console.error("Error stopping recognition during speech:", error);
-            }
-          }
-        };
-        
         utterance.onend = () => {
           if (chunkIndex < chunks.length) {
             console.log(`Speaking chunk ${chunkIndex+1}/${chunks.length}`);
@@ -132,27 +151,19 @@ export function useSpeech(): UseSpeechReturn {
             nextUtterance.voice = utterance.voice;
             utteranceRef.current = nextUtterance;
             
-            nextUtterance.onend = utterance.onend;
+            if (chunkIndex === chunks.length - 1) {
+              // This is the last chunk
+              nextUtterance.onend = () => {
+                finishSpeaking();
+              };
+            } else {
+              nextUtterance.onend = utterance.onend;
+            }
             
             chunkIndex++;
             window.speechSynthesis.speak(nextUtterance);
           } else {
-            setSpeaking(false);
-            console.log("Finished speaking all chunks, reactivating listening");
-            
-            // Wait a short delay before reactivating listening
-            setTimeout(() => {
-              if (recognition && !isListening) {
-                try {
-                  setIsListening(true);
-                  recognition.start();
-                  console.log("Reactivated listening after speech");
-                } catch (error) {
-                  console.error("Error restarting recognition after speech:", error);
-                  resetRecognition();
-                }
-              }
-            }, 500);
+            finishSpeaking();
           }
         };
         
@@ -163,36 +174,8 @@ export function useSpeech(): UseSpeechReturn {
     }
     
     // For shorter texts
-    utterance.onstart = () => {
-      setSpeaking(true);
-      console.log("Started speaking, pausing recognition");
-      if (isListening && recognition) {
-        try {
-          recognition.stop();
-          setIsListening(false);
-        } catch (error) {
-          console.error("Error stopping recognition during speech:", error);
-        }
-      }
-    };
-
     utterance.onend = () => {
-      setSpeaking(false);
-      console.log("Speech ended, attempting to restart recognition");
-      
-      // Wait a short delay before reactivating listening
-      setTimeout(() => {
-        if (recognition && !isListening) {
-          try {
-            setIsListening(true);
-            recognition.start();
-            console.log("Recognition restarted after speech end");
-          } catch (error) {
-            console.error("Error restarting recognition after speech:", error);
-            resetRecognition();
-          }
-        }
-      }, 500);
+      finishSpeaking();
     };
 
     try {
@@ -200,10 +183,37 @@ export function useSpeech(): UseSpeechReturn {
       window.speechSynthesis.speak(utterance);
     } catch (error) {
       console.error("Error during speech synthesis:", error);
-      setSpeaking(false);
+      finishSpeaking();
       toast.error("Speech synthesis error", {
         description: "Unable to speak the response"
       });
+    }
+  }
+  
+  function finishSpeaking(): void {
+    console.log("Speech finished");
+    setSpeaking(false);
+    isSpeakingRef.current = false;
+    
+    // Restart recognition if it was active before
+    if (!isListening && recognition) {
+      setTimeout(() => {
+        try {
+          recognition.start();
+          setIsListening(true);
+          console.log("Reactivated listening after speech");
+        } catch (error) {
+          console.error("Error restarting recognition after speech:", error);
+          resetRecognition();
+        }
+      }, 500);
+    }
+    
+    // Process any remaining items in the queue
+    if (speechQueueRef.current.length > 0) {
+      setTimeout(() => {
+        processSpeechQueue();
+      }, 300);
     }
   }
 
@@ -296,7 +306,12 @@ export function useSpeech(): UseSpeechReturn {
         const finalSpeech = event.results[event.results.length - 1][0].transcript;
         console.log("Recognized speech:", finalSpeech);
         
-        setRecognizedSpeech(finalSpeech);
+        // Only set speech if we're not currently speaking
+        if (!speaking) {
+          setRecognizedSpeech(finalSpeech);
+        } else {
+          console.log("Speech recognition ignored while speaking");
+        }
       };
 
       recognitionInstance.onend = () => {
@@ -305,7 +320,7 @@ export function useSpeech(): UseSpeechReturn {
         
         if (!speaking) {
           setTimeout(() => {
-            if (!speaking) {
+            if (!speaking && !isSpeakingRef.current) {
               try {
                 recognitionInstance.start();
                 console.log("Auto-restarting recognition after end");
