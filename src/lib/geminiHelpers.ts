@@ -4,8 +4,8 @@ import { toast } from "sonner";
 // Function to analyze PDF content
 export async function analyzePdfContent(pdfText: string): Promise<string> {
   try {
-    if (!pdfText) {
-      throw new Error("No PDF content provided");
+    if (!pdfText || pdfText.trim().length < 100) {
+      throw new Error("Insufficient PDF content to analyze");
     }
 
     console.log("Analyzing PDF content length:", pdfText.length);
@@ -13,6 +13,10 @@ export async function analyzePdfContent(pdfText: string): Promise<string> {
     // Extract key concepts from PDF text
     const mainTopics = extractMainTopics(pdfText);
     const keyTerms = extractKeyTerms(pdfText);
+    
+    // Get more detailed content by extracting significant paragraphs
+    const paragraphs = pdfText.split(/\n\s*\n/).filter(p => p.trim().length > 100);
+    const significantParagraphs = paragraphs.slice(0, 3).map(p => p.trim());
     
     // Format the analysis response
     const analysis = `
@@ -26,6 +30,9 @@ export async function analyzePdfContent(pdfText: string): Promise<string> {
 
       ## Important Terms and Concepts
       ${keyTerms.map(term => `- ${term}`).join("\n")}
+      
+      ## Content Highlights
+      ${significantParagraphs.map((para, i) => `${i+1}. ${para.length > 200 ? para.substring(0, 200) + "..." : para}`).join("\n\n")}
 
       ## Summary
       The document discusses various aspects of ${mainTopics[0] || "the subject matter"}. It contains information that would be valuable for quiz preparation and interview practice.
@@ -85,23 +92,23 @@ function extractKeyTerms(text: string): string[] {
 // Function to answer questions from PDF
 export async function answerQuestionFromPdf(question: string, pdfText: string): Promise<string> {
   try {
-    if (!pdfText) {
-      throw new Error("No PDF content provided");
+    if (!pdfText || pdfText.trim().length < 100) {
+      throw new Error("Insufficient PDF content provided");
     }
 
     console.log("Answering question from PDF, content length:", pdfText.length);
     console.log("Question:", question);
     
-    // For simplicity, let's extract relevant passages from the PDF that might contain the answer
+    // Extract relevant passages from the PDF that might contain the answer
     const relevantPassages = findRelevantPassages(question, pdfText);
     
     if (relevantPassages.length === 0) {
-      return `I couldn't find specific information about "${question}" in the document. Please try asking a different question or upload a PDF with relevant content.`;
+      return `I couldn't find specific information about "${question}" in your uploaded PDF. The document may not contain information related to this question. Please try asking something related to the content in your PDF.`;
     }
     
     // Formulate an answer based on relevant passages
     const answer = `
-      Based on the PDF content, here's what I found regarding "${question}":
+      Based on your uploaded PDF content, here's what I found regarding "${question}":
 
       ${relevantPassages.map((passage, index) => `${index + 1}. ${passage}`).join("\n\n")}
       
@@ -139,7 +146,10 @@ function findRelevantPassages(question: string, text: string): string[] {
     .filter(item => item.score > 0)
     .map(item => item.sentence.trim());
   
-  return relevantSentences;
+  return relevantSentences.length > 0 ? relevantSentences : 
+    [sentences.length > 0 ? 
+      "The document doesn't contain specific information about this query, but you can review the PDF content for related topics." :
+      "The PDF content doesn't contain sufficient text to answer this question."];
 }
 
 // Function to generate mock test from PDF
@@ -150,8 +160,8 @@ export async function generateMockTest(
   format: string = "mixed"
 ): Promise<string> {
   try {
-    if (!pdfText) {
-      throw new Error("No PDF content provided");
+    if (!pdfText || pdfText.trim().length < 100) {
+      throw new Error("Insufficient PDF content provided");
     }
 
     console.log(`Generating ${difficulty} mock test with ${numQuestions} questions in ${format} format...`);
@@ -164,6 +174,11 @@ export async function generateMockTest(
     // Generate questions based on actual content
     const sections = pdfText.split(/\n\s*\n/).filter(s => s.trim().length > 100);
     
+    if (sections.length === 0 && pdfText.length > 100) {
+      // If no good sections but have text, create one section with all content
+      sections.push(pdfText);
+    }
+    
     let questions = '';
     const answers: string[] = [];
     const mcqCount = format === "mcq" ? numQuestions : format === "mixed" ? Math.ceil(numQuestions / 2) : 0;
@@ -175,7 +190,7 @@ export async function generateMockTest(
         const randomSection = sections[Math.floor(Math.random() * sections.length)];
         const questionData = generateMCQFromSection(randomSection, i + 1, topics, keyTerms);
         questions += questionData.question;
-        answers.push(questionData.answer);
+        answers.push(`${i + 1}. ${questionData.answer}`);
       } else {
         // Fallback if no good sections found
         questions += `
@@ -251,8 +266,8 @@ D. ${topics[3] || "Topic 4"}
       question: `
 ${questionNum}. According to the document, which of the following is true?
 A. ${topics[0]} is a key concept
-B. ${topics[1]} relates to ${topics[2]}
-C. ${keyTerms[0]} is important for understanding ${topics[0]}
+B. ${topics[1] || topics[0]} relates to ${topics[2] || keyTerms[0] || "the field"}
+C. ${keyTerms[0] || topics[0]} is important for understanding ${topics[1] || "the subject"}
 D. All of the above
 
 `,

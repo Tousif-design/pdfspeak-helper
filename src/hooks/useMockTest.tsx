@@ -19,26 +19,28 @@ export function useMockTest(): UseMockTestReturn {
   const [testScore, setTestScore] = useState<number | null>(null);
 
   async function generateTest(pdfContent: string): Promise<void> {
-    if (!pdfContent) {
-      toast.error("No PDF content", {
-        description: "Please upload a PDF first to generate a test"
+    if (!pdfContent || pdfContent.trim().length < 100) {
+      toast.error("No valid PDF content", {
+        description: "Please upload a PDF with sufficient content to generate a test"
       });
       return;
     }
     
     try {
       console.log("Generating mock test from PDF content");
+      console.log("PDF content length:", pdfContent.length);
       
       // Show loading toast
       const loadingToastId = toast.loading("Generating test questions", {
         description: "Creating questions based on your PDF content"
       });
       
-      const response = await generateMockTest(pdfContent, "comprehensive", 10, "mixed");
+      // Force MCQ format by specifying "mcq" as the format parameter
+      const response = await generateMockTest(pdfContent, "comprehensive", 10, "mcq");
       console.log("Mock test generated, length:", response.length);
       setMockTest(response);
       
-      // Extract answers
+      // Extract answers - improve the regex to better match the format
       const answerSection = response.match(/ANSWERS[\s\S]*$/i);
       if (answerSection) {
         const answers = answerSection[0].match(/\d+\.\s*([A-D]|.+)/g) || [];
@@ -50,6 +52,13 @@ export function useMockTest(): UseMockTestReturn {
         
         console.log("Extracted answers:", cleanedAnswers);
         setMockTestAnswers(cleanedAnswers);
+      } else {
+        console.error("Could not find answer section in generated test");
+        toast.error("Problem with test generation", {
+          id: loadingToastId,
+          description: "Could not extract answers properly"
+        });
+        return;
       }
       
       // Update toast
@@ -70,6 +79,9 @@ export function useMockTest(): UseMockTestReturn {
     
     if (mockTestAnswers.length === 0) {
       console.error("No test answers available");
+      toast.error("Test evaluation failed", {
+        description: "No answer key available for this test"
+      });
       return 0;
     }
     

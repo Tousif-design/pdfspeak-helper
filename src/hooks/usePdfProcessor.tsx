@@ -49,6 +49,16 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       
       const text = await extractTextFromPdf(file);
       console.log("PDF text extracted, length:", text.length);
+      
+      if (!text || text.trim().length < 100) {
+        toast.error("PDF content extraction issue", {
+          id: processingToastId,
+          description: "Could not extract sufficient text from this PDF. It may be image-based or secured."
+        });
+        setIsProcessingPdf(false);
+        return;
+      }
+      
       setPdfContent(text);
       
       // Update toast
@@ -60,7 +70,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       setAiResponse("Analyzing your PDF...");
       
       const analysis = await analyzePdfContent(text);
-      console.log("PDF analysis complete");
+      console.log("PDF analysis complete, length:", analysis.length);
       setPdfAnalysis(analysis);
       setIsPdfAnalyzed(true);
       
@@ -70,7 +80,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
         description: "PDF has been analyzed and is ready for questions"
       });
       
-      const successMessage = `I've analyzed "${file.name}". Would you like me to explain the content or do you have specific questions about it?`;
+      const successMessage = `I've analyzed "${file.name}". This document is about ${text.substring(0, 100)}... Would you like me to explain the content or do you have specific questions about it?`;
       setAiResponse(successMessage);
       speak(successMessage);
       
@@ -112,7 +122,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
          prompt.toLowerCase().includes("it"));
 
       if (isPdfSummaryRequest && !pdfContent) {
-        const noPdfMessage = "Please provide me with a PDF! I need the content of a PDF to summarize it for you.";
+        const noPdfMessage = "Please provide me with a PDF! I need the content of a PDF to summarize it for you. You can upload a PDF using the upload button.";
         setAiResponse(noPdfMessage);
         speak(noPdfMessage);
         return;
@@ -128,7 +138,9 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       
       let response;
       
-      if (pdfContent) {
+      if (pdfContent && pdfContent.length > 100) {
+        console.log("PDF content available, length:", pdfContent.length);
+        
         const isPdfQuery = 
           isPdfSummaryRequest || 
           prompt.toLowerCase().includes("pdf") || 
@@ -163,11 +175,16 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
             response = await answerQuestionFromPdf(prompt, pdfContent);
           }
         } else {
-          console.log("Using regular query");
+          console.log("Using regular query despite having PDF");
           response = await runQuery(prompt);
+          
+          // If this is a test request, make sure to mention that we have a PDF
+          if (prompt.toLowerCase().includes("test") || prompt.toLowerCase().includes("quiz")) {
+            response += "\n\nI notice you have a PDF uploaded. Would you like me to generate a test based on that PDF content? Just ask me to 'create a test from the PDF' or go to the Test tab.";
+          }
         }
       } else {
-        console.log("No PDF available, using regular query");
+        console.log("No PDF available or empty content, using regular query");
         response = await runQuery(prompt);
       }
       

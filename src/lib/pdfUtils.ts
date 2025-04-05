@@ -4,7 +4,8 @@ import { toast } from "sonner";
 
 // Initialize PDF.js worker
 const pdfjsWorker = import('pdfjs-dist/build/pdf.worker.entry');
-pdfjs.GlobalWorkerOptions.workerUrl = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+// Fix the TypeScript error by using the correct property
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
 
 /**
  * Extracts text from a PDF file
@@ -56,7 +57,7 @@ export async function extractTextFromPdf(file: File): Promise<string> {
     return fullText;
   } catch (error) {
     console.error("Error extracting text from PDF:", error);
-    toast.error("Failed to process PDF. Please try a different file.", {
+    toast.error("Failed to process PDF", {
       description: "The PDF format may not be supported or the file may be corrupted."
     });
     throw new Error("PDF extraction failed");
