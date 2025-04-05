@@ -14,7 +14,15 @@ export async function extractTextFromPdf(file: File): Promise<string> {
   try {
     console.log("Starting PDF extraction for:", file.name);
     const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+    
+    // Load the PDF document
+    const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
+    loadingTask.onProgress = (progress) => {
+      const percent = progress.loaded / (progress.total || 1) * 100;
+      console.log(`Loading PDF: ${Math.round(percent)}%`);
+    };
+    
+    const pdf = await loadingTask.promise;
     
     console.log(`PDF loaded with ${pdf.numPages} pages`);
     let fullText = "";
@@ -23,28 +31,38 @@ export async function extractTextFromPdf(file: File): Promise<string> {
     
     // Show loading toast
     let toastId;
-    if (totalPages > 5) {
+    if (totalPages > 3) {
       toastId = toast.loading(`Processing PDF (0/${totalPages} pages)`, {
         duration: 100000
       });
     }
     
-    for (let i = 1; i <= totalPages; i++) {
-      // Update progress for larger PDFs
-      if (totalPages > 5 && i % 2 === 0) {
-        toast.loading(`Processing PDF (${i}/${totalPages} pages)`, {
-          id: toastId
-        });
+    // Process pages in parallel with limited concurrency
+    const concurrency = 3;
+    const batchSize = Math.min(concurrency, totalPages);
+    let processedPages = 0;
+    
+    // Process in batches to improve performance but avoid memory issues
+    for (let batchStart = 1; batchStart <= totalPages; batchStart += batchSize) {
+      const batchPromises = [];
+      const batchEnd = Math.min(batchStart + batchSize - 1, totalPages);
+      
+      for (let i = batchStart; i <= batchEnd; i++) {
+        batchPromises.push(extractPageText(pdf, i));
       }
       
-      try {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items.map((item: any) => item.str).join(' ');
+      // Wait for batch to complete
+      const batchResults = await Promise.all(batchPromises);
+      batchResults.forEach(pageText => {
         fullText += pageText + '\n\n';
-        console.log(`Extracted page ${i}: ${pageText.substring(0, 50)}...`);
-      } catch (pageError) {
-        console.error(`Error processing page ${i}:`, pageError);
+      });
+      
+      // Update progress
+      processedPages += batchPromises.length;
+      if (toastId && totalPages > 3) {
+        toast.loading(`Processing PDF (${processedPages}/${totalPages} pages)`, {
+          id: toastId
+        });
       }
     }
     
@@ -54,6 +72,14 @@ export async function extractTextFromPdf(file: File): Promise<string> {
     }
     
     console.log("PDF extraction completed successfully, length:", fullText.length);
+    
+    // If text is too short, it might indicate a scan/image-based PDF
+    if (fullText.trim().length < 100 && totalPages > 0) {
+      toast.warning("Limited text extracted", {
+        description: "This may be a scanned PDF with limited text content"
+      });
+    }
+    
     return fullText;
   } catch (error) {
     console.error("Error extracting text from PDF:", error);
@@ -61,6 +87,25 @@ export async function extractTextFromPdf(file: File): Promise<string> {
       description: "The PDF format may not be supported or the file may be corrupted."
     });
     throw new Error("PDF extraction failed");
+  }
+}
+
+/**
+ * Extract text from a single page
+ */
+async function extractPageText(pdf: pdfjs.PDFDocumentProxy, pageNum: number): Promise<string> {
+  try {
+    const page = await pdf.getPage(pageNum);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items
+      .map((item: any) => item.str)
+      .join(' ');
+    
+    console.log(`Extracted page ${pageNum}: ${pageText.substring(0, 50)}...`);
+    return pageText;
+  } catch (pageError) {
+    console.error(`Error processing page ${pageNum}:`, pageError);
+    return `[Error extracting text from page ${pageNum}]`;
   }
 }
 

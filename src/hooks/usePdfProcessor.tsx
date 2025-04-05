@@ -37,9 +37,11 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
     }
 
     try {
+      // Reset states
       setIsProcessingPdf(true);
       setIsPdfAnalyzed(false);
       setPdfName(file.name);
+      setPdfAnalysis(""); // Clear previous analysis
       
       // Show processing toast
       const processingToastId = toast.loading(`Processing ${file.name}`, {
@@ -61,7 +63,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       
       setPdfContent(text);
       
-      // Update toast
+      // Update toast for analysis phase
       toast.loading(`Analyzing ${file.name}`, {
         id: processingToastId,
         description: "Analyzing PDF content..."
@@ -69,21 +71,30 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       
       setAiResponse("Analyzing your PDF...");
       
-      const analysis = await analyzePdfContent(text);
-      console.log("PDF analysis complete, length:", analysis.length);
-      setPdfAnalysis(analysis);
-      setIsPdfAnalyzed(true);
-      
-      // Success toast
-      toast.success(`${file.name} processed`, {
-        id: processingToastId,
-        description: "PDF has been analyzed and is ready for questions"
-      });
-      
-      const successMessage = `I've analyzed "${file.name}". This document is about ${text.substring(0, 100)}... Would you like me to explain the content or do you have specific questions about it?`;
-      setAiResponse(successMessage);
-      speak(successMessage);
-      
+      try {
+        const analysis = await analyzePdfContent(text);
+        console.log("PDF analysis complete, length:", analysis.length);
+        setPdfAnalysis(analysis);
+        setIsPdfAnalyzed(true);
+        
+        // Success toast
+        toast.success(`${file.name} processed`, {
+          id: processingToastId,
+          description: "PDF has been analyzed and is ready for questions"
+        });
+        
+        const successMessage = `I've analyzed "${file.name}". This document is about ${text.substring(0, 100)}... Would you like me to explain the content or do you have specific questions about it?`;
+        setAiResponse(successMessage);
+        speak(successMessage);
+      } catch (analysisError) {
+        console.error("Error analyzing PDF:", analysisError);
+        toast.error("Analysis failed", {
+          id: processingToastId, 
+          description: "Could not analyze the PDF content. Please try again."
+        });
+        setPdfAnalysis("Failed to analyze the PDF. Please try again or ask questions directly about the content.");
+        setIsPdfAnalyzed(true); // Mark as analyzed even though it failed
+      }
     } catch (error: any) {
       console.error("Error processing PDF:", error);
       toast.error("Failed to process PDF", { description: error.message });
@@ -154,7 +165,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
           prompt.toLowerCase().includes("what is") ||
           prompt.toLowerCase().includes("how does") ||
           prompt.toLowerCase().includes("explain") ||
-          !prompt.toLowerCase().includes("test") && 
+          prompt.toLowerCase().includes("test") ||
           !prompt.toLowerCase().includes("interview") &&
           !prompt.toLowerCase().includes("quiz");
         
@@ -162,13 +173,14 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
         
         if (isPdfQuery) {
           if (isPdfSummaryRequest) {
-            if (pdfAnalysis) {
+            if (pdfAnalysis && !isProcessingPdf) {
               console.log("Using cached PDF analysis");
               response = pdfAnalysis;
             } else {
               console.log("Generating new PDF analysis");
-              response = await analyzePdfContent(pdfContent);
-              setPdfAnalysis(response);
+              const newAnalysis = await analyzePdfContent(pdfContent);
+              setPdfAnalysis(newAnalysis);
+              response = newAnalysis;
             }
           } else {
             console.log("Answering specific question from PDF");
@@ -207,7 +219,12 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
 
       console.log("AI Response:", cleanedResponse.substring(0, 100) + "...");
       setAiResponse(cleanedResponse);
-      speak(cleanedResponse);
+      
+      // Explicitly speak the response
+      if (!speaking) {
+        console.log("Speaking response...");
+        speak(cleanedResponse);
+      }
     } catch (error) {
       console.error("Error in AI response:", error);
       const errorMessage = "Sorry, I couldn't process your request. Please try again.";

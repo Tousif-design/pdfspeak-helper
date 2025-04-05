@@ -19,12 +19,13 @@ export function useSpeech(): UseSpeechReturn {
   const [recognizedSpeech, setRecognizedSpeech] = useState("");
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const reconnectAttemptsRef = useRef(0);
-  const maxReconnectAttempts = 3;
+  const maxReconnectAttempts = 5;
 
   function stopSpeaking(): void {
     if (speaking) {
       window.speechSynthesis.cancel();
       setSpeaking(false);
+      console.log("Speech stopped by user");
     }
   }
 
@@ -32,9 +33,9 @@ export function useSpeech(): UseSpeechReturn {
     if (!text) return "";
 
     return text
-      .replace(/google/gi, "Tousif")
-      .replace(/satric/gi, "Tousif")
-      .replace(/goolge/gi, "Tousif")
+      .replace(/google/gi, "Assistant")
+      .replace(/satric/gi, "Assistant")
+      .replace(/goolge/gi, "Assistant")
       .replace(/\*\*/g, "") // Removes double asterisks (**)
       .replace(/\*/g, "") // Removes single asterisks (*)
       .replace(/\*\)/g, "") // Removes `*)`
@@ -49,6 +50,7 @@ export function useSpeech(): UseSpeechReturn {
 
     let cleanedText = cleanText(text);
     
+    // Create new utterance
     const utterance = new SpeechSynthesisUtterance(cleanedText);
     utterance.volume = 1;
     utterance.rate = 1.0;
@@ -57,13 +59,30 @@ export function useSpeech(): UseSpeechReturn {
     utteranceRef.current = utterance;
     
     // Get available voices and select a suitable one
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length) {
-      const englishVoice = voices.find(voice => 
-        voice.lang.includes('en') && voice.name.includes('Female')
-      ) || voices.find(voice => voice.lang.includes('en')) || voices[0];
-      
-      utterance.voice = englishVoice;
+    let voices = window.speechSynthesis.getVoices();
+    if (voices.length === 0) {
+      // If voices aren't loaded yet, wait for them
+      window.speechSynthesis.onvoiceschanged = () => {
+        voices = window.speechSynthesis.getVoices();
+        selectVoice(utterance, voices);
+        console.log("Voices loaded after wait:", voices.length);
+      };
+    } else {
+      selectVoice(utterance, voices);
+    }
+    
+    function selectVoice(utterance: SpeechSynthesisUtterance, voices: SpeechSynthesisVoice[]) {
+      if (voices.length) {
+        // Try to find a good English female voice
+        const englishVoice = voices.find(voice => 
+          voice.lang.includes('en') && voice.name.includes('Female')
+        ) || voices.find(voice => 
+          voice.lang.includes('en')
+        ) || voices[0];
+        
+        utterance.voice = englishVoice;
+        console.log("Selected voice:", englishVoice.name);
+      }
     }
     
     // Handle long texts by chunking
@@ -92,6 +111,7 @@ export function useSpeech(): UseSpeechReturn {
         
         utterance.onstart = () => {
           setSpeaking(true);
+          console.log("Started speaking, pausing recognition...");
           if (isListening && recognition) {
             try {
               recognition.stop();
@@ -106,9 +126,9 @@ export function useSpeech(): UseSpeechReturn {
           if (chunkIndex < chunks.length) {
             console.log(`Speaking chunk ${chunkIndex+1}/${chunks.length}`);
             const nextUtterance = new SpeechSynthesisUtterance(chunks[chunkIndex]);
-            nextUtterance.volume = 1;
-            nextUtterance.rate = 1.0;
-            nextUtterance.pitch = 1.0;
+            nextUtterance.volume = utterance.volume;
+            nextUtterance.rate = utterance.rate;
+            nextUtterance.pitch = utterance.pitch;
             nextUtterance.voice = utterance.voice;
             utteranceRef.current = nextUtterance;
             
@@ -118,7 +138,7 @@ export function useSpeech(): UseSpeechReturn {
             window.speechSynthesis.speak(nextUtterance);
           } else {
             setSpeaking(false);
-            console.log("Finished speaking all chunks");
+            console.log("Finished speaking all chunks, reactivating listening");
             
             // Wait a short delay before reactivating listening
             setTimeout(() => {
@@ -129,19 +149,23 @@ export function useSpeech(): UseSpeechReturn {
                   console.log("Reactivated listening after speech");
                 } catch (error) {
                   console.error("Error restarting recognition after speech:", error);
+                  resetRecognition();
                 }
               }
             }, 500);
           }
         };
         
+        console.log("Starting to speak chunked text");
         window.speechSynthesis.speak(utterance);
         return;
       }
     }
     
+    // For shorter texts
     utterance.onstart = () => {
       setSpeaking(true);
+      console.log("Started speaking, pausing recognition");
       if (isListening && recognition) {
         try {
           recognition.stop();
@@ -172,6 +196,7 @@ export function useSpeech(): UseSpeechReturn {
     };
 
     try {
+      console.log("Speaking now...");
       window.speechSynthesis.speak(utterance);
     } catch (error) {
       console.error("Error during speech synthesis:", error);
@@ -207,17 +232,18 @@ export function useSpeech(): UseSpeechReturn {
   // Initialize voices and speech synthesis
   useEffect(() => {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
-      const loadVoices = () => {
-        const voices = window.speechSynthesis.getVoices();
-        if (voices.length > 0) {
-          console.log(`${voices.length} voices loaded`);
-        }
+      // Preload voices
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        console.log(`Initial voices loaded: ${voices.length}`);
+      }
+      
+      window.speechSynthesis.onvoiceschanged = () => {
+        const updatedVoices = window.speechSynthesis.getVoices();
+        console.log(`Updated voices loaded: ${updatedVoices.length}`);
       };
       
-      loadVoices();
-      window.speechSynthesis.onvoiceschanged = loadVoices;
-      
-      // Periodically check speech synthesis state
+      // Fix Chrome bug where speech synthesis gets paused
       const intervalId = setInterval(() => {
         if (speaking && utteranceRef.current) {
           if (window.speechSynthesis.paused) {
@@ -229,6 +255,7 @@ export function useSpeech(): UseSpeechReturn {
       
       return () => {
         clearInterval(intervalId);
+        window.speechSynthesis.cancel(); // Make sure to cancel any speech on cleanup
       };
     }
   }, [speaking]);
@@ -282,6 +309,7 @@ export function useSpeech(): UseSpeechReturn {
               try {
                 recognitionInstance.start();
                 console.log("Auto-restarting recognition after end");
+                setIsListening(true);
               } catch (error) {
                 console.error("Failed to auto-restart recognition:", error);
                 resetRecognition();
