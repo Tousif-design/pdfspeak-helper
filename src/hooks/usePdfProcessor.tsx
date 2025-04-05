@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { extractTextFromPdf, validatePdfFile } from "../lib/pdfUtils";
 import { analyzePdfContent, answerQuestionFromPdf, runQuery } from "../lib/geminiHelpers";
@@ -74,8 +74,9 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       
       // Attempt to generate analysis immediately
       try {
+        console.log("Starting PDF analysis...");
         const analysis = await analyzePdfContent(text);
-        console.log("PDF analysis complete, length:", analysis.length);
+        console.log("PDF analysis complete, length:", analysis ? analysis.length : 0);
         
         if (analysis && analysis.length > 100) {
           setPdfAnalysis(analysis);
@@ -88,10 +89,11 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
             description: "PDF has been analyzed and is ready for questions"
           });
           
-          const successMessage = `I've analyzed "${file.name}". This document is about ${text.substring(0, 100)}... Would you like me to explain the content or do you have specific questions about it?`;
+          const successMessage = `I've analyzed "${file.name}". This document appears to be about ${text.substring(0, 100)}... Would you like me to explain more about the content or do you have specific questions about it?`;
           setAiResponse(successMessage);
           speak(successMessage);
         } else {
+          console.warn("Analysis returned was too short or empty, using fallback");
           // Generate fallback analysis if the returned analysis is too short
           const fallbackAnalysis = generateFallbackAnalysis(text, file.name);
           setPdfAnalysis(fallbackAnalysis);
@@ -136,6 +138,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
   
   // Generate basic analysis from text when the AI fails
   function generateFallbackAnalysis(text: string, fileName: string): string {
+    console.log("Generating fallback analysis for PDF");
     // Simple word count and basic stats
     const wordCount = text.split(/\s+/).length;
     const paragraphCount = text.split(/\n\s*\n/).length;
@@ -194,15 +197,18 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       setUserQuery(prompt);
       setAiResponse("Thinking... 🤔");
 
+      // Stop speaking command
       if (prompt.toLowerCase().includes("stop") || 
           prompt.toLowerCase().includes("cancel") ||
           prompt.toLowerCase().includes("quiet") ||
           prompt.toLowerCase().includes("shut up")) {
         stopSpeaking();
-        setAiResponse("I've stopped speaking as requested.");
+        const stopMsg = "I've stopped speaking as requested.";
+        setAiResponse(stopMsg);
         return;
       }
 
+      // Check if this is a PDF summary request
       const isPdfSummaryRequest = 
         (prompt.toLowerCase().includes("summarize") || 
          prompt.toLowerCase().includes("summary") ||
@@ -214,6 +220,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
          prompt.toLowerCase().includes("file") ||
          prompt.toLowerCase().includes("it"));
 
+      // Handle case where user asks for PDF summary but no PDF is uploaded
       if (isPdfSummaryRequest && !pdfContent) {
         const noPdfMessage = "Please provide me with a PDF! I need the content of a PDF to summarize it for you. You can upload a PDF using the upload button.";
         setAiResponse(noPdfMessage);
@@ -231,6 +238,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       
       let response;
       
+      // If PDF content is available, determine if we should use it for the response
       if (pdfContent && pdfContent.length > 100) {
         console.log("PDF content available, length:", pdfContent.length);
         
@@ -254,6 +262,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
         console.log("isPdfQuery:", isPdfQuery, "isPdfSummaryRequest:", isPdfSummaryRequest);
         
         if (isPdfQuery) {
+          // If asking for a summary/analysis and we have one cached
           if (isPdfSummaryRequest) {
             if (pdfAnalysis && !isProcessingPdf) {
               console.log("Using cached PDF analysis");
@@ -264,11 +273,13 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
                 const newAnalysis = await analyzePdfContent(pdfContent);
                 if (newAnalysis && newAnalysis.length > 100) {
                   setPdfAnalysis(newAnalysis);
+                  setIsPdfAnalyzed(true);
                   response = newAnalysis;
                 } else {
                   // Fallback if analysis is too short
                   const fallback = generateFallbackAnalysis(pdfContent, pdfName || "document");
                   setPdfAnalysis(fallback);
+                  setIsPdfAnalyzed(true);
                   response = fallback;
                 }
               } catch (error) {
@@ -276,10 +287,12 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
                 console.error("Error generating analysis:", error);
                 const fallback = generateFallbackAnalysis(pdfContent, pdfName || "document");
                 setPdfAnalysis(fallback);
+                setIsPdfAnalyzed(true);
                 response = fallback;
               }
             }
           } else {
+            // For specific questions about the PDF content
             console.log("Answering specific question from PDF");
             try {
               response = await answerQuestionFromPdf(prompt, pdfContent);

@@ -35,7 +35,7 @@ export function useMockTest(): UseMockTestReturn {
         description: "Creating questions based on your PDF content"
       });
       
-      // Very explicit format for the MCQ structure to ensure all options are generated
+      // Extra explicit MCQ format with requirement for EXACTLY 4 options
       const mcqFormat = `
       Generate 10 multiple choice questions with EXACTLY 4 options labeled A, B, C, D for each question.
       Use this exact format without any deviation:
@@ -62,7 +62,8 @@ export function useMockTest(): UseMockTestReturn {
       (And so on for all 10 questions)
       
       Make sure all questions are specific to the PDF content provided.
-      Ensure EVERY question has ALL four options (A, B, C, D) without exception.
+      Ensure EVERY question has EXACTLY four options (A, B, C, D) without exception.
+      The questions and options must match the content provided in the PDF.
       `;
       
       const response = await generateMockTest(pdfContent, "comprehensive", 10, mcqFormat);
@@ -144,7 +145,7 @@ export function useMockTest(): UseMockTestReturn {
     }
   }
 
-  // Helper function to ensure proper MCQ format with all options
+  // Enhanced helper function to ensure proper MCQ format with all options
   function ensureProperMCQFormat(text: string): string {
     // Split into questions and answers section
     const parts = text.split(/ANSWERS:/i);
@@ -154,7 +155,7 @@ export function useMockTest(): UseMockTestReturn {
     const answersText = parts[1];
     
     // Process each question to ensure it has all options
-    const questionBlocks = questionsText.split(/\d+\.\s/).filter(block => block.trim().length > 0);
+    const questionBlocks = questionsText.split(/^\d+\./m).filter(block => block.trim().length > 0);
     
     let formattedQuestions = "";
     questionBlocks.forEach((block, index) => {
@@ -170,12 +171,22 @@ export function useMockTest(): UseMockTestReturn {
         formattedQuestions += `${questionNumber}. ${block.trim()}\n\n`;
       } else {
         // If missing options, create a properly formatted question
-        const questionText = block.split(/[A-D]\)/)[0].trim();
+        // First, try to extract the question text
+        let questionText = block.trim();
+        const optionsMatch = questionText.match(/A\)|B\)|C\)|D\)/);
+        if (optionsMatch) {
+          const optionIndex = questionText.indexOf(optionsMatch[0]);
+          if (optionIndex > 0) {
+            questionText = questionText.substring(0, optionIndex).trim();
+          }
+        }
+        
+        // Now create a properly formatted question with all options
         formattedQuestions += `${questionNumber}. ${questionText}\n`;
-        formattedQuestions += `A) Option A\n`;
-        formattedQuestions += `B) Option B\n`;
-        formattedQuestions += `C) Option C\n`;
-        formattedQuestions += `D) Option D\n\n`;
+        formattedQuestions += `A) Option A for question ${questionNumber}\n`;
+        formattedQuestions += `B) Option B for question ${questionNumber}\n`;
+        formattedQuestions += `C) Option C for question ${questionNumber}\n`;
+        formattedQuestions += `D) Option D for question ${questionNumber}\n\n`;
         
         console.log(`Fixed formatting for question ${questionNumber} - missing options`);
       }
@@ -216,11 +227,8 @@ export function useMockTest(): UseMockTestReturn {
       
       console.log(`Question ${i+1}: User answer: ${userAnswer}, Correct: ${correctAnswer}`);
       
-      if (userAnswer && correctAnswer) {
-        // Just compare the letter for multiple choice
-        if (userAnswer === correctAnswer) {
-          correctCount++;
-        }
+      if (userAnswer && correctAnswer && userAnswer === correctAnswer) {
+        correctCount++;
       }
     }
     
