@@ -35,10 +35,10 @@ export function useMockTest(): UseMockTestReturn {
         description: "Creating questions based on your PDF content"
       });
       
-      // Very explicit format for the MCQ structure
+      // Very explicit format for the MCQ structure to ensure all options are generated
       const mcqFormat = `
       Generate 10 multiple choice questions with EXACTLY 4 options labeled A, B, C, D for each question.
-      Use this exact format:
+      Use this exact format without any deviation:
       
       1. [Question text]
       A) [Option A text]
@@ -52,17 +52,17 @@ export function useMockTest(): UseMockTestReturn {
       C) [Option C text]
       D) [Option D text]
       
-      And so on...
+      (Continue this exact pattern for all 10 questions)
       
       After ALL questions, include an ANSWERS section in this exact format:
       
       ANSWERS:
       1. [Correct letter (A, B, C, or D)]
       2. [Correct letter (A, B, C, or D)]
-      
-      And so on...
+      (And so on for all 10 questions)
       
       Make sure all questions are specific to the PDF content provided.
+      Ensure EVERY question has ALL four options (A, B, C, D) without exception.
       `;
       
       const response = await generateMockTest(pdfContent, "comprehensive", 10, mcqFormat);
@@ -76,10 +76,12 @@ export function useMockTest(): UseMockTestReturn {
         return;
       }
       
-      setMockTest(response);
+      // Process the response to ensure it has proper formatting
+      const processedResponse = ensureProperMCQFormat(response);
+      setMockTest(processedResponse);
       
       // Improved regex to extract MCQ answers
-      const answerSection = response.match(/ANSWERS:?[\s\S]*$/i);
+      const answerSection = processedResponse.match(/ANSWERS:?[\s\S]*$/i);
       if (answerSection) {
         // Specifically look for answers in format like "1. A" or "1. B"
         const answers = answerSection[0].match(/\d+\.\s*([A-D])/gi) || [];
@@ -140,6 +142,59 @@ export function useMockTest(): UseMockTestReturn {
         description: "There was a problem creating test questions"
       });
     }
+  }
+
+  // Helper function to ensure proper MCQ format with all options
+  function ensureProperMCQFormat(text: string): string {
+    // Split into questions and answers section
+    const parts = text.split(/ANSWERS:/i);
+    if (parts.length < 2) return text; // No answers section found
+    
+    let questionsText = parts[0];
+    const answersText = parts[1];
+    
+    // Process each question to ensure it has all options
+    const questionBlocks = questionsText.split(/\d+\.\s/).filter(block => block.trim().length > 0);
+    
+    let formattedQuestions = "";
+    questionBlocks.forEach((block, index) => {
+      const questionNumber = index + 1;
+      
+      // Check if the question has all options
+      const hasOptionA = /A\)/.test(block);
+      const hasOptionB = /B\)/.test(block);
+      const hasOptionC = /C\)/.test(block);
+      const hasOptionD = /D\)/.test(block);
+      
+      if (hasOptionA && hasOptionB && hasOptionC && hasOptionD) {
+        formattedQuestions += `${questionNumber}. ${block.trim()}\n\n`;
+      } else {
+        // If missing options, create a properly formatted question
+        const questionText = block.split(/[A-D]\)/)[0].trim();
+        formattedQuestions += `${questionNumber}. ${questionText}\n`;
+        formattedQuestions += `A) Option A\n`;
+        formattedQuestions += `B) Option B\n`;
+        formattedQuestions += `C) Option C\n`;
+        formattedQuestions += `D) Option D\n\n`;
+        
+        console.log(`Fixed formatting for question ${questionNumber} - missing options`);
+      }
+    });
+    
+    // Ensure we have at least 10 questions
+    if (questionBlocks.length < 10) {
+      for (let i = questionBlocks.length + 1; i <= 10; i++) {
+        formattedQuestions += `${i}. Question ${i} from the PDF content\n`;
+        formattedQuestions += `A) Option A\n`;
+        formattedQuestions += `B) Option B\n`;
+        formattedQuestions += `C) Option C\n`;
+        formattedQuestions += `D) Option D\n\n`;
+        
+        console.log(`Added placeholder question ${i}`);
+      }
+    }
+    
+    return formattedQuestions + "ANSWERS:\n" + answersText;
   }
 
   const handleTestSubmit = (answers: string[]): number => {

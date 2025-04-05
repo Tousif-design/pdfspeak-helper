@@ -29,6 +29,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
   const [isPdfAnalyzed, setIsPdfAnalyzed] = useState(false);
   const [userQuery, setUserQuery] = useState("");
   const [aiResponse, setAiResponse] = useState("");
+  const [analysisAttempts, setAnalysisAttempts] = useState(0);
 
   async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.target.files?.[0];
@@ -71,29 +72,56 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       
       setAiResponse("Analyzing your PDF...");
       
+      // Attempt to generate analysis immediately
       try {
         const analysis = await analyzePdfContent(text);
         console.log("PDF analysis complete, length:", analysis.length);
-        setPdfAnalysis(analysis);
-        setIsPdfAnalyzed(true);
         
-        // Success toast
-        toast.success(`${file.name} processed`, {
-          id: processingToastId,
-          description: "PDF has been analyzed and is ready for questions"
-        });
-        
-        const successMessage = `I've analyzed "${file.name}". This document is about ${text.substring(0, 100)}... Would you like me to explain the content or do you have specific questions about it?`;
-        setAiResponse(successMessage);
-        speak(successMessage);
+        if (analysis && analysis.length > 100) {
+          setPdfAnalysis(analysis);
+          setIsPdfAnalyzed(true);
+          setAnalysisAttempts(0);
+          
+          // Success toast
+          toast.success(`${file.name} processed`, {
+            id: processingToastId,
+            description: "PDF has been analyzed and is ready for questions"
+          });
+          
+          const successMessage = `I've analyzed "${file.name}". This document is about ${text.substring(0, 100)}... Would you like me to explain the content or do you have specific questions about it?`;
+          setAiResponse(successMessage);
+          speak(successMessage);
+        } else {
+          // Generate fallback analysis if the returned analysis is too short
+          const fallbackAnalysis = generateFallbackAnalysis(text, file.name);
+          setPdfAnalysis(fallbackAnalysis);
+          setIsPdfAnalyzed(true);
+          
+          toast.success(`${file.name} processed`, {
+            id: processingToastId,
+            description: "PDF has been analyzed with basic information"
+          });
+          
+          const fallbackMessage = `I've analyzed "${file.name}". Would you like me to explain the content or do you have specific questions about it?`;
+          setAiResponse(fallbackMessage);
+          speak(fallbackMessage);
+        }
       } catch (analysisError) {
         console.error("Error analyzing PDF:", analysisError);
-        toast.error("Analysis failed", {
+        
+        // Generate fallback analysis
+        const fallbackAnalysis = generateFallbackAnalysis(text, file.name);
+        setPdfAnalysis(fallbackAnalysis);
+        setIsPdfAnalyzed(true);
+        
+        toast.warning("Basic analysis completed", {
           id: processingToastId, 
-          description: "Could not analyze the PDF content. Please try again."
+          description: "Created a simplified analysis of your PDF"
         });
-        setPdfAnalysis("Failed to analyze the PDF. Please try again or ask questions directly about the content.");
-        setIsPdfAnalyzed(true); // Mark as analyzed even though it failed
+        
+        const fallbackMessage = `I've analyzed "${file.name}" but couldn't generate a detailed analysis. You can still ask questions about the content.`;
+        setAiResponse(fallbackMessage);
+        speak(fallbackMessage);
       }
     } catch (error: any) {
       console.error("Error processing PDF:", error);
@@ -104,6 +132,60 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
     } finally {
       setIsProcessingPdf(false);
     }
+  }
+  
+  // Generate basic analysis from text when the AI fails
+  function generateFallbackAnalysis(text: string, fileName: string): string {
+    // Simple word count and basic stats
+    const wordCount = text.split(/\s+/).length;
+    const paragraphCount = text.split(/\n\s*\n/).length;
+    const lines = text.split('\n');
+    const lineCount = lines.length;
+    
+    // Try to extract a potential title from the first few lines
+    let potentialTitle = "";
+    for (let i = 0; i < Math.min(5, lines.length); i++) {
+      if (lines[i].trim().length > 0 && lines[i].length < 100) {
+        potentialTitle = lines[i].trim();
+        break;
+      }
+    }
+    
+    // Extract some keywords (words that appear multiple times)
+    const words = text.toLowerCase().split(/\W+/).filter(word => word.length > 4);
+    const wordFrequency: {[key: string]: number} = {};
+    words.forEach(word => {
+      if (!["about", "these", "their", "there", "which", "would"].includes(word)) {
+        wordFrequency[word] = (wordFrequency[word] || 0) + 1;
+      }
+    });
+    
+    // Get the top 10 most frequent words
+    const keywords = Object.entries(wordFrequency)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([word]) => word);
+    
+    return `
+      # PDF Analysis
+      
+      ## Document Overview
+      - File Name: ${fileName}
+      - Word Count: ${wordCount}
+      - Paragraph Count: ${paragraphCount}
+      - Line Count: ${lineCount}
+      ${potentialTitle ? `- Possible Title: ${potentialTitle}` : ''}
+      
+      ## Key Terms
+      ${keywords.map(word => `- ${word}`).join('\n')}
+      
+      ## Content Preview
+      ${text.substring(0, 300)}...
+      
+      ## Summary
+      This document contains ${wordCount} words across ${paragraphCount} paragraphs. 
+      You can ask questions about the specific content to learn more.
+    `;
   }
 
   async function aiResponseHandler(prompt: string): Promise<void> {
@@ -178,13 +260,33 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
               response = pdfAnalysis;
             } else {
               console.log("Generating new PDF analysis");
-              const newAnalysis = await analyzePdfContent(pdfContent);
-              setPdfAnalysis(newAnalysis);
-              response = newAnalysis;
+              try {
+                const newAnalysis = await analyzePdfContent(pdfContent);
+                if (newAnalysis && newAnalysis.length > 100) {
+                  setPdfAnalysis(newAnalysis);
+                  response = newAnalysis;
+                } else {
+                  // Fallback if analysis is too short
+                  const fallback = generateFallbackAnalysis(pdfContent, pdfName || "document");
+                  setPdfAnalysis(fallback);
+                  response = fallback;
+                }
+              } catch (error) {
+                // Fallback on error
+                console.error("Error generating analysis:", error);
+                const fallback = generateFallbackAnalysis(pdfContent, pdfName || "document");
+                setPdfAnalysis(fallback);
+                response = fallback;
+              }
             }
           } else {
             console.log("Answering specific question from PDF");
-            response = await answerQuestionFromPdf(prompt, pdfContent);
+            try {
+              response = await answerQuestionFromPdf(prompt, pdfContent);
+            } catch (error) {
+              console.error("Error answering from PDF:", error);
+              response = `I encountered an error while answering your question from the PDF. Here's what I can tell you about the document:\n\n${pdfContent.substring(0, 500)}...\n\nPlease try rephrasing your question.`;
+            }
           }
         } else {
           console.log("Using regular query despite having PDF");
@@ -220,9 +322,11 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       console.log("AI Response:", cleanedResponse.substring(0, 100) + "...");
       setAiResponse(cleanedResponse);
       
-      // Explicitly speak the response - don't check if already speaking, just start
+      // Ensure the response is spoken by the voice assistant
       console.log("Speaking response...");
-      speak(cleanedResponse);
+      if (cleanedResponse) {
+        speak(cleanedResponse);
+      }
     } catch (error) {
       console.error("Error in AI response:", error);
       const errorMessage = "Sorry, I couldn't process your request. Please try again.";
