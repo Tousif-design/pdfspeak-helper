@@ -1,8 +1,8 @@
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { extractTextFromPdf, validatePdfFile } from "../lib/pdfUtils";
-import { analyzePdfContent, answerQuestionFromPdf, runQuery } from "../lib/geminiHelpers";
+import { extractTextFromPdf, validatePdfFile, checkPdfProcessingStatus } from "../lib/pdfUtils";
+import { analyzePdfContent, answerQuestionFromPdf, runQuery, generateMockTest } from "../lib/geminiHelpers";
 
 export interface UsePdfProcessorReturn {
   handleFileUpload: (event: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
@@ -30,6 +30,98 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
   const [userQuery, setUserQuery] = useState("");
   const [aiResponse, setAiResponse] = useState("");
   const [analysisAttempts, setAnalysisAttempts] = useState(0);
+  const [processingStartTime, setProcessingStartTime] = useState(0);
+
+  // Set up processing check interval
+  useEffect(() => {
+    let processingCheckInterval: NodeJS.Timeout;
+    
+    if (isProcessingPdf && processingStartTime > 0) {
+      processingCheckInterval = setInterval(() => {
+        const isStuck = checkPdfProcessingStatus(processingStartTime);
+        if (isStuck) {
+          setIsProcessingPdf(false);
+          setPdfContent(""); // Reset content due to failure
+          clearInterval(processingCheckInterval);
+        }
+      }, 10000); // Check every 10 seconds
+    }
+    
+    return () => {
+      if (processingCheckInterval) {
+        clearInterval(processingCheckInterval);
+      }
+    };
+  }, [isProcessingPdf, processingStartTime]);
+
+  const generateFallbackAnalysis = useCallback((text: string, fileName: string): string => {
+    console.log("Generating fallback analysis for PDF");
+    // Simple word count and basic stats
+    const wordCount = text.split(/\s+/).length;
+    const paragraphCount = text.split(/\n\s*\n/).length;
+    const lines = text.split('\n');
+    const lineCount = lines.length;
+    
+    // Try to extract a potential title from the first few lines
+    let potentialTitle = "";
+    for (let i = 0; i < Math.min(5, lines.length); i++) {
+      if (lines[i].trim().length > 0 && lines[i].length < 100) {
+        potentialTitle = lines[i].trim();
+        break;
+      }
+    }
+    
+    // Extract some keywords (words that appear multiple times)
+    const words = text.toLowerCase().split(/\W+/).filter(word => word.length > 4);
+    const wordFrequency: {[key: string]: number} = {};
+    words.forEach(word => {
+      if (!["about", "these", "their", "there", "which", "would"].includes(word)) {
+        wordFrequency[word] = (wordFrequency[word] || 0) + 1;
+      }
+    });
+    
+    // Get the top 10 most frequent words
+    const keywords = Object.entries(wordFrequency)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([word]) => word);
+    
+    return `
+      # PDF Analysis
+
+      ## Document Overview
+      - File Name: ${fileName}
+      - Word Count: ${wordCount}
+      - Paragraph Count: ${paragraphCount}
+      - Line Count: ${lineCount}
+      ${potentialTitle ? `- Possible Title: ${potentialTitle}` : ''}
+      
+      ## Key Terms
+      ${keywords.map(word => `- ${word}`).join('\n')}
+      
+      ## Content Preview
+      ${text.substring(0, 300)}...
+      
+      ## Summary
+      This document contains ${wordCount} words across ${paragraphCount} paragraphs. 
+      You can ask questions about the specific content to learn more.
+    `;
+  }, []);
+
+  // Extract a likely topic from the PDF content
+  const extractTopicFromContent = useCallback((text: string): string => {
+    const firstParagraph = text.split('\n\n')[0] || '';
+    const firstSentence = firstParagraph.split('.')[0] || '';
+    
+    let topic = "the provided content";
+    
+    if (firstSentence.length > 10) {
+      // Using just first 100 chars of first sentence to extract topic
+      topic = firstSentence.substring(0, 100) + "...";
+    }
+    
+    return topic;
+  }, []);
 
   async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.target.files?.[0];
@@ -44,6 +136,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       setPdfName(file.name);
       setPdfAnalysis(""); // Clear previous analysis
       setAiResponse(""); // Clear previous response
+      setProcessingStartTime(Date.now());
       
       // Show processing toast
       const processingToastId = toast.loading(`Processing ${file.name}`, {
@@ -136,77 +229,8 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       speak(errorMessage);
     } finally {
       setIsProcessingPdf(false);
+      setProcessingStartTime(0);
     }
-  }
-  
-  // Extract a likely topic from the PDF content
-  function extractTopicFromContent(text: string): string {
-    const firstParagraph = text.split('\n\n')[0] || '';
-    const firstSentence = firstParagraph.split('.')[0] || '';
-    
-    let topic = "the provided content";
-    
-    if (firstSentence.length > 10) {
-      // Using just first 100 chars of first sentence to extract topic
-      topic = firstSentence.substring(0, 100) + "...";
-    }
-    
-    return topic;
-  }
-  
-  // Generate basic analysis from text when the AI fails
-  function generateFallbackAnalysis(text: string, fileName: string): string {
-    console.log("Generating fallback analysis for PDF");
-    // Simple word count and basic stats
-    const wordCount = text.split(/\s+/).length;
-    const paragraphCount = text.split(/\n\s*\n/).length;
-    const lines = text.split('\n');
-    const lineCount = lines.length;
-    
-    // Try to extract a potential title from the first few lines
-    let potentialTitle = "";
-    for (let i = 0; i < Math.min(5, lines.length); i++) {
-      if (lines[i].trim().length > 0 && lines[i].length < 100) {
-        potentialTitle = lines[i].trim();
-        break;
-      }
-    }
-    
-    // Extract some keywords (words that appear multiple times)
-    const words = text.toLowerCase().split(/\W+/).filter(word => word.length > 4);
-    const wordFrequency: {[key: string]: number} = {};
-    words.forEach(word => {
-      if (!["about", "these", "their", "there", "which", "would"].includes(word)) {
-        wordFrequency[word] = (wordFrequency[word] || 0) + 1;
-      }
-    });
-    
-    // Get the top 10 most frequent words
-    const keywords = Object.entries(wordFrequency)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([word]) => word);
-    
-    return `
-      # PDF Analysis
-
-      ## Document Overview
-      - File Name: ${fileName}
-      - Word Count: ${wordCount}
-      - Paragraph Count: ${paragraphCount}
-      - Line Count: ${lineCount}
-      ${potentialTitle ? `- Possible Title: ${potentialTitle}` : ''}
-      
-      ## Key Terms
-      ${keywords.map(word => `- ${word}`).join('\n')}
-      
-      ## Content Preview
-      ${text.substring(0, 300)}...
-      
-      ## Summary
-      This document contains ${wordCount} words across ${paragraphCount} paragraphs. 
-      You can ask questions about the specific content to learn more.
-    `;
   }
 
   async function aiResponseHandler(prompt: string): Promise<void> {
@@ -272,14 +296,34 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
           prompt.toLowerCase().includes("summarize") ||
           prompt.toLowerCase().includes("what is") ||
           prompt.toLowerCase().includes("how does") ||
-          prompt.toLowerCase().includes("explain") ||
+          prompt.toLowerCase().includes("explain");
+        
+        const isTestRequest = 
           prompt.toLowerCase().includes("test") ||
-          !prompt.toLowerCase().includes("interview") &&
-          !prompt.toLowerCase().includes("quiz");
+          prompt.toLowerCase().includes("quiz") ||
+          prompt.toLowerCase().includes("exam") ||
+          prompt.toLowerCase().includes("assessment");
+          
+        const isInterviewRequest = 
+          prompt.toLowerCase().includes("interview") ||
+          prompt.toLowerCase().includes("question me");
+          
+        console.log("isPdfQuery:", isPdfQuery, "isPdfSummaryRequest:", isPdfSummaryRequest, 
+          "isTestRequest:", isTestRequest, "isInterviewRequest:", isInterviewRequest);
         
-        console.log("isPdfQuery:", isPdfQuery, "isPdfSummaryRequest:", isPdfSummaryRequest);
-        
-        if (isPdfQuery) {
+        if (isTestRequest) {
+          // Handle test generation requests differently
+          console.log("Detected test generation request");
+          try {
+            response = await generateMockTest(pdfContent, "comprehensive", 10, "mixed");
+            toast.success("Mock test generated", {
+              description: "Your test has been created based on the PDF content"
+            });
+          } catch (error) {
+            console.error("Error generating test:", error);
+            response = "I encountered an error while generating a test from your PDF. Please try again or check if the PDF has sufficient content for test generation.";
+          }
+        } else if (isPdfQuery) {
           // If asking for a summary/analysis and we have one cached
           if (isPdfSummaryRequest) {
             if (pdfAnalysis && !isProcessingPdf) {
@@ -319,6 +363,9 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
               response = `I encountered an error while answering your question from the PDF. Here's what I can tell you about the document:\n\n${pdfContent.substring(0, 500)}...\n\nPlease try rephrasing your question.`;
             }
           }
+        } else if (isInterviewRequest) {
+          // Special handling for interview requests
+          response = "To start an interview practice session based on this PDF, please go to the Interview tab where you can have a simulated interview experience with questions generated from your PDF content.";
         } else {
           console.log("Using regular query despite having PDF");
           response = await runQuery(prompt);
@@ -337,7 +384,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       if (thinkingToastId) {
         toast.dismiss(thinkingToastId);
       }
-      
+
       function cleanText(text: string): string {
         if (!text) return "";
       

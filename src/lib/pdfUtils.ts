@@ -17,9 +17,17 @@ export async function extractTextFromPdf(file: File): Promise<string> {
     
     // Load the PDF document
     const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
+    let progressToastId: string | number | undefined;
+    
     loadingTask.onProgress = (progress) => {
       const percent = progress.loaded / (progress.total || 1) * 100;
       console.log(`Loading PDF: ${Math.round(percent)}%`);
+      
+      if (percent > 0 && percent < 100 && !progressToastId) {
+        progressToastId = toast.loading(`Loading PDF: ${Math.round(percent)}%`, {
+          duration: 3000
+        });
+      }
     };
     
     const pdf = await loadingTask.promise;
@@ -69,6 +77,7 @@ export async function extractTextFromPdf(file: File): Promise<string> {
     // Dismiss loading toast if it exists
     if (toastId) {
       toast.dismiss(toastId);
+      toast.success(`PDF processed successfully (${totalPages} pages)`);
     }
     
     console.log("PDF extraction completed successfully, length:", fullText.length);
@@ -106,6 +115,13 @@ async function extractPageText(pdf: pdfjs.PDFDocumentProxy, pageNum: number): Pr
   } catch (pageError) {
     console.error(`Error processing page ${pageNum}:`, pageError);
     return `[Error extracting text from page ${pageNum}]`;
+  } finally {
+    // Force garbage collection to prevent memory issues
+    try {
+      if (typeof window !== 'undefined' && (window as any).gc) {
+        (window as any).gc();
+      }
+    } catch (e) {}
   }
 }
 
@@ -207,4 +223,21 @@ export function validatePdfFile(file: File): boolean {
   }
   
   return true;
+}
+
+/**
+ * Checks if PDF processing is stuck and provides recovery
+ */
+export function checkPdfProcessingStatus(startTime: number): boolean {
+  const processingTime = Date.now() - startTime;
+  const maxProcessingTime = 60000; // 60 seconds
+  
+  if (processingTime > maxProcessingTime) {
+    toast.error("PDF processing timeout", {
+      description: "Processing is taking too long. Try a smaller PDF file."
+    });
+    return true; // Processing is stuck
+  }
+  
+  return false; // Processing is still within acceptable time
 }

@@ -9,11 +9,27 @@ export function useSpeech() {
   const [recognizedSpeech, setRecognizedSpeech] = useState("");
   const speechQueueRef = useRef<string[]>([]);
   const isSpeakingRef = useRef<boolean>(false);
+  const speechSynthesisRef = useRef<SpeechSynthesis | null>(null);
 
-  // Initialize speech recognition
+  // Initialize speech recognition and synthesis
   useEffect(() => {
     if (typeof window === 'undefined') return;
     
+    // Initialize speech synthesis
+    speechSynthesisRef.current = window.speechSynthesis;
+    
+    // Check if speech synthesis is available
+    if (!speechSynthesisRef.current) {
+      console.warn("Speech synthesis not supported in this browser");
+    } else {
+      console.log("Speech synthesis initialized");
+      
+      // Pre-warm the speech synthesis
+      const utterance = new SpeechSynthesisUtterance("");
+      speechSynthesisRef.current.speak(utterance);
+    }
+    
+    // Initialize speech recognition
     let SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition) {
       try {
@@ -56,6 +72,21 @@ export function useSpeech() {
     } else {
       console.warn("Speech Recognition is not supported in this browser.");
     }
+    
+    // Cleanup
+    return () => {
+      if (recognition) {
+        try {
+          recognition.stop();
+        } catch (e) {
+          console.error("Error stopping recognition during cleanup:", e);
+        }
+      }
+      
+      if (speechSynthesisRef.current) {
+        speechSynthesisRef.current.cancel();
+      }
+    };
   }, []);
 
   // Function to manage the speech queue
@@ -70,7 +101,7 @@ export function useSpeech() {
 
   // Actual speak function that handles the direct speech synthesis
   const speakText = (text: string) => {
-    if (!text) return;
+    if (!text || !speechSynthesisRef.current) return;
     
     try {
       // Clean the text
@@ -127,7 +158,12 @@ export function useSpeech() {
       };
       
       // Speak the text
-      window.speechSynthesis.speak(utterance);
+      speechSynthesisRef.current.speak(utterance);
+      
+      // Safari and some mobile browsers may need manual resume
+      if (speechSynthesisRef.current.paused) {
+        speechSynthesisRef.current.resume();
+      }
     } catch (error) {
       console.error("Error in speech synthesis:", error);
       isSpeakingRef.current = false;
@@ -140,8 +176,14 @@ export function useSpeech() {
   const speak = (text: string) => {
     if (!text) return;
     
+    // Check if speech synthesis is available
+    if (!speechSynthesisRef.current) {
+      console.warn("Speech synthesis not available");
+      return;
+    }
+    
     // Split very long text into smaller chunks for better performance
-    const maxChunkSize = 1000; // Characters - reduced for better responsiveness
+    const maxChunkSize = 500; // Characters - reduced for better responsiveness
     if (text.length > maxChunkSize) {
       const chunks = splitTextIntoChunks(text, maxChunkSize);
       console.log(`Split text into ${chunks.length} chunks for speaking`);
@@ -187,10 +229,17 @@ export function useSpeech() {
   // Stop speaking immediately
   const stopSpeaking = () => {
     speechQueueRef.current = []; // Clear the queue
-    window.speechSynthesis.cancel();
+    if (speechSynthesisRef.current) {
+      speechSynthesisRef.current.cancel();
+    }
     isSpeakingRef.current = false;
     setSpeaking(false);
     console.log("Speech stopped and queue cleared");
+    
+    // Notify user
+    toast.success("Voice stopped", {
+      description: "Speech has been cancelled"
+    });
   };
 
   // Toggle speech recognition
@@ -206,9 +255,13 @@ export function useSpeech() {
       if (isListening) {
         recognition.stop();
         setIsListening(false);
+        toast.success("Voice input turned off");
       } else {
         recognition.start();
         setIsListening(true);
+        toast.success("Voice input turned on", {
+          description: "Speak now to ask questions"
+        });
       }
     } catch (error) {
       console.error("Error toggling recognition:", error);
