@@ -10,6 +10,7 @@ export function useSpeech() {
   const speechQueueRef = useRef<string[]>([]);
   const isSpeakingRef = useRef<boolean>(false);
   const speechSynthesisRef = useRef<SpeechSynthesis | null>(null);
+  const recognitionActiveRef = useRef<boolean>(false);
 
   // Initialize speech recognition and synthesis
   useEffect(() => {
@@ -35,32 +36,68 @@ export function useSpeech() {
       try {
         let recog = new SpeechRecognition();
         recog.continuous = true;
-        recog.interimResults = false;
+        recog.interimResults = true; // Enable interim results for better responsiveness
         recog.lang = "en-US";
         recog.maxAlternatives = 1;
 
         recog.onstart = () => {
           console.log("Speech recognition started...");
           setIsListening(true);
+          recognitionActiveRef.current = true;
+          toast.success("Voice recognition active", {
+            description: "I'm listening to your question"
+          });
         };
 
         recog.onresult = (event: any) => {
-          let transcript = event.results[event.results.length - 1][0].transcript;
-          console.log("Recognized Speech:", transcript);
-          setRecognizedSpeech(transcript);
+          const resultIndex = event.resultIndex;
+          const transcript = event.results[resultIndex][0].transcript;
+          const isFinal = event.results[resultIndex].isFinal;
+          
+          console.log("Speech recognition result:", transcript, "Final:", isFinal);
+          
+          if (isFinal) {
+            // Only set recognized speech when we have a final result
+            console.log("Final transcript:", transcript);
+            setRecognizedSpeech(transcript);
+          }
         };
 
         recog.onend = () => {
           console.log("Speech recognition stopped...");
-          setIsListening(false);
+          // Only update UI state if this wasn't triggered by a restart
+          if (recognitionActiveRef.current) {
+            setIsListening(false);
+            recognitionActiveRef.current = false;
+          } else if (isListening) {
+            // Try to restart if it stopped unexpectedly
+            try {
+              console.log("Attempting to restart recognition...");
+              recog.start();
+              recognitionActiveRef.current = true;
+            } catch (e) {
+              console.error("Failed to restart recognition:", e);
+              setIsListening(false);
+            }
+          }
         };
 
         recog.onerror = (event: any) => {
           console.error("Speech recognition error:", event.error);
+          recognitionActiveRef.current = false;
           setIsListening(false);
+          
           if (event.error === 'not-allowed') {
             toast.error("Microphone access denied", {
               description: "Please allow microphone access to use speech recognition"
+            });
+          } else if (event.error === 'network') {
+            toast.error("Network error", {
+              description: "Check your internet connection and try again"
+            });
+          } else {
+            toast.error("Voice recognition error", {
+              description: `${event.error || "Unknown error"}. Try again.`
             });
           }
         };
@@ -68,9 +105,15 @@ export function useSpeech() {
         setRecognition(recog);
       } catch (error) {
         console.error("Error initializing speech recognition:", error);
+        toast.error("Voice recognition not available", {
+          description: "Your browser may not support this feature"
+        });
       }
     } else {
       console.warn("Speech Recognition is not supported in this browser.");
+      toast.error("Voice recognition not supported", {
+        description: "Please try using a modern browser like Chrome"
+      });
     }
     
     // Cleanup
@@ -78,6 +121,7 @@ export function useSpeech() {
       if (recognition) {
         try {
           recognition.stop();
+          recognitionActiveRef.current = false;
         } catch (e) {
           console.error("Error stopping recognition during cleanup:", e);
         }
@@ -120,10 +164,12 @@ export function useSpeech() {
         isSpeakingRef.current = true;
         setSpeaking(true);
         
-        // Pause recognition while speaking
+        // Pause recognition while speaking to prevent feedback loop
         if (isListening && recognition) {
           try {
+            console.log("Pausing recognition while speaking");
             recognition.stop();
+            recognitionActiveRef.current = false;
           } catch (e) {
             console.error("Error stopping recognition:", e);
           }
@@ -138,7 +184,9 @@ export function useSpeech() {
         // Resume recognition if it was active
         if (recognition && isListening) {
           try {
+            console.log("Resuming recognition after speaking");
             recognition.start();
+            recognitionActiveRef.current = true;
           } catch (e) {
             console.error("Error restarting recognition:", e);
           }
@@ -155,6 +203,16 @@ export function useSpeech() {
         
         // Process the next item even on error
         setTimeout(() => processSpeechQueue(), 300);
+        
+        // Resume recognition if it was paused due to speaking
+        if (recognition && isListening && !recognitionActiveRef.current) {
+          try {
+            recognition.start();
+            recognitionActiveRef.current = true;
+          } catch (e) {
+            console.error("Error restarting recognition after speech error:", e);
+          }
+        }
       };
       
       // Speak the text
@@ -183,7 +241,7 @@ export function useSpeech() {
     }
     
     // Split very long text into smaller chunks for better performance
-    const maxChunkSize = 500; // Characters - reduced for better responsiveness
+    const maxChunkSize = 250; // Characters - reduced for better responsiveness
     if (text.length > maxChunkSize) {
       const chunks = splitTextIntoChunks(text, maxChunkSize);
       console.log(`Split text into ${chunks.length} chunks for speaking`);
@@ -203,13 +261,15 @@ export function useSpeech() {
 
   // Split text into chunks at sentence boundaries
   const splitTextIntoChunks = (text: string, maxChunkSize: number): string[] => {
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    // Split at sentence boundaries (periods, exclamation marks, question marks)
+    const sentences = text.split(/([.!?]+)/).filter(Boolean);
     const chunks: string[] = [];
     let currentChunk = "";
     
-    sentences.forEach(sentence => {
-      // Add period back to sentence
-      const fullSentence = sentence.trim() + ". ";
+    for (let i = 0; i < sentences.length; i += 2) {
+      const sentence = sentences[i] || "";
+      const punctuation = sentences[i + 1] || "";
+      const fullSentence = sentence + punctuation + " ";
       
       if (currentChunk.length + fullSentence.length > maxChunkSize) {
         chunks.push(currentChunk);
@@ -217,7 +277,7 @@ export function useSpeech() {
       } else {
         currentChunk += fullSentence;
       }
-    });
+    }
     
     if (currentChunk.length > 0) {
       chunks.push(currentChunk);
@@ -240,6 +300,16 @@ export function useSpeech() {
     toast.success("Voice stopped", {
       description: "Speech has been cancelled"
     });
+    
+    // Resume recognition if it was active but paused due to speaking
+    if (recognition && isListening && !recognitionActiveRef.current) {
+      try {
+        recognition.start();
+        recognitionActiveRef.current = true;
+      } catch (e) {
+        console.error("Error restarting recognition after stopping speech:", e);
+      }
+    }
   };
 
   // Toggle speech recognition
@@ -254,10 +324,12 @@ export function useSpeech() {
     try {
       if (isListening) {
         recognition.stop();
+        recognitionActiveRef.current = false;
         setIsListening(false);
         toast.success("Voice input turned off");
       } else {
         recognition.start();
+        recognitionActiveRef.current = true;
         setIsListening(true);
         toast.success("Voice input turned on", {
           description: "Speak now to ask questions"

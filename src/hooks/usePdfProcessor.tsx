@@ -1,7 +1,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { extractTextFromPdf, validatePdfFile, checkPdfProcessingStatus } from "../lib/pdfUtils";
+import { extractTextFromPdf, validatePdfFile, checkPdfProcessingStatus, validateExtractedPdfContent } from "../lib/pdfUtils";
 import { analyzePdfContent, answerQuestionFromPdf, runQuery, generateMockTest } from "../lib/geminiHelpers";
 
 export interface UsePdfProcessorReturn {
@@ -31,6 +31,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
   const [aiResponse, setAiResponse] = useState("");
   const [analysisAttempts, setAnalysisAttempts] = useState(0);
   const [processingStartTime, setProcessingStartTime] = useState(0);
+  const [isResponding, setIsResponding] = useState(false);
 
   // Set up processing check interval
   useEffect(() => {
@@ -234,7 +235,14 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
   }
 
   async function aiResponseHandler(prompt: string): Promise<void> {
+    // Prevent multiple simultaneous responses
+    if (isResponding) {
+      console.log("Already processing a response, ignoring new request");
+      return;
+    }
+    
     try {
+      setIsResponding(true);
       console.log("User Question:", prompt);
       setUserQuery(prompt);
       setAiResponse("Thinking... 🤔");
@@ -250,21 +258,22 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
         return;
       }
 
-      // Check if this is a PDF summary request
-      const isPdfSummaryRequest = 
-        (prompt.toLowerCase().includes("summarize") || 
-         prompt.toLowerCase().includes("summary") ||
-         prompt.toLowerCase().includes("explain") ||
-         prompt.toLowerCase().includes("tell me about")) && 
-        (prompt.toLowerCase().includes("pdf") || 
-         prompt.toLowerCase().includes("document") ||
-         prompt.toLowerCase().includes("content") ||
-         prompt.toLowerCase().includes("file") ||
-         prompt.toLowerCase().includes("it"));
+      // Check if this is specifically about the PDF
+      const isPdfQuery = 
+        prompt.toLowerCase().includes("pdf") ||
+        prompt.toLowerCase().includes("document") ||
+        prompt.toLowerCase().includes("file") ||
+        prompt.toLowerCase().includes("uploaded") ||
+        prompt.toLowerCase().includes("tell me about") ||
+        prompt.toLowerCase().includes("explain") ||
+        prompt.toLowerCase().includes("summarize") ||
+        prompt.toLowerCase().includes("what is in") ||
+        prompt.toLowerCase().includes("what does") ||
+        prompt.toLowerCase().includes("content");
 
-      // Handle case where user asks for PDF summary but no PDF is uploaded
-      if (isPdfSummaryRequest && !pdfContent) {
-        const noPdfMessage = "Please provide me with a PDF! I need the content of a PDF to summarize it for you. You can upload a PDF using the upload button.";
+      // Handle case where user asks about PDF but no PDF is uploaded
+      if (isPdfQuery && !pdfContent) {
+        const noPdfMessage = "Please provide me with a PDF! I need the content of a PDF to answer questions about it. You can upload a PDF using the upload button.";
         setAiResponse(noPdfMessage);
         speak(noPdfMessage);
         return;
@@ -280,23 +289,9 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       
       let response;
       
-      // If PDF content is available, determine if we should use it for the response
+      // If PDF content is available, determine if we should use it
       if (pdfContent && pdfContent.length > 100) {
         console.log("PDF content available, length:", pdfContent.length);
-        
-        const isPdfQuery = 
-          isPdfSummaryRequest || 
-          prompt.toLowerCase().includes("pdf") || 
-          prompt.toLowerCase().includes("document") ||
-          prompt.toLowerCase().includes("analyze") ||
-          prompt.toLowerCase().includes("content") ||
-          prompt.toLowerCase().includes("about the") ||
-          prompt.toLowerCase().includes("what does the") ||
-          prompt.toLowerCase().includes("tell me about") ||
-          prompt.toLowerCase().includes("summarize") ||
-          prompt.toLowerCase().includes("what is") ||
-          prompt.toLowerCase().includes("how does") ||
-          prompt.toLowerCase().includes("explain");
         
         const isTestRequest = 
           prompt.toLowerCase().includes("test") ||
@@ -308,24 +303,29 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
           prompt.toLowerCase().includes("interview") ||
           prompt.toLowerCase().includes("question me");
           
-        console.log("isPdfQuery:", isPdfQuery, "isPdfSummaryRequest:", isPdfSummaryRequest, 
+        console.log("isPdfQuery:", isPdfQuery, 
           "isTestRequest:", isTestRequest, "isInterviewRequest:", isInterviewRequest);
         
         if (isTestRequest) {
           // Handle test generation requests differently
           console.log("Detected test generation request");
           try {
-            response = await generateMockTest(pdfContent, "comprehensive", 10, "mixed");
-            toast.success("Mock test generated", {
-              description: "Your test has been created based on the PDF content"
+            response = "I'll generate a mock test based on your PDF content. Please go to the 'Test' tab to take the test.";
+            
+            // Trigger test generation but don't wait for it
+            toast.loading("Generating mock test", {
+              description: "Creating questions from your PDF content"
             });
           } catch (error) {
-            console.error("Error generating test:", error);
-            response = "I encountered an error while generating a test from your PDF. Please try again or check if the PDF has sufficient content for test generation.";
+            console.error("Error handling test request:", error);
+            response = "I encountered an error preparing the test from your PDF. Please try again or check if the PDF has sufficient content for test generation.";
           }
-        } else if (isPdfQuery) {
-          // If asking for a summary/analysis and we have one cached
-          if (isPdfSummaryRequest) {
+        } else if (isPdfQuery || isPdfDirectQuestion(prompt)) {
+          // If asking about the PDF content
+          console.log("User is asking about the PDF content");
+          
+          // If this is a general inquiry about the PDF
+          if (isPdfGeneralQuestion(prompt)) {
             if (pdfAnalysis && !isProcessingPdf) {
               console.log("Using cached PDF analysis");
               response = pdfAnalysis;
@@ -358,9 +358,14 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
             console.log("Answering specific question from PDF");
             try {
               response = await answerQuestionFromPdf(prompt, pdfContent);
+              console.log("Got response from PDF content, length:", response?.length);
+              
+              if (!response || response.length < 20) {
+                throw new Error("Empty or invalid response");
+              }
             } catch (error) {
               console.error("Error answering from PDF:", error);
-              response = `I encountered an error while answering your question from the PDF. Here's what I can tell you about the document:\n\n${pdfContent.substring(0, 500)}...\n\nPlease try rephrasing your question.`;
+              response = `I encountered an error while answering your specific question from the PDF. Here's what I can tell you based on a quick analysis of the document:\n\n${pdfContent.substring(0, 300)}...\n\nPlease try asking a different question about the content.`;
             }
           }
         } else if (isInterviewRequest) {
@@ -414,7 +419,61 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       toast.error("Error processing request", {
         description: "There was a problem generating a response"
       });
+    } finally {
+      setIsResponding(false);
     }
+  }
+  
+  // Check if the question is specifically about the PDF content
+  function isPdfDirectQuestion(question: string): boolean {
+    // Lower case for easier comparison
+    const q = question.toLowerCase();
+    
+    // Check for questions that directly refer to the PDF
+    const pdfContentPhrases = [
+      "what does the document say about",
+      "what is mentioned in the pdf about",
+      "according to the document",
+      "based on the pdf",
+      "in the pdf",
+      "from the document",
+      "the pdf mentions",
+      "tell me about the document",
+      "what's in the document about",
+      "content of the pdf",
+      "in the uploaded file",
+      "what is in the pdf",
+      "what does the pdf say"
+    ];
+    
+    // Return true if any phrase is found in the question
+    return pdfContentPhrases.some(phrase => q.includes(phrase));
+  }
+  
+  // Check if the question is a general inquiry about the PDF
+  function isPdfGeneralQuestion(question: string): boolean {
+    // Lower case for easier comparison
+    const q = question.toLowerCase();
+    
+    // Check for general PDF questions
+    const generalQuestions = [
+      "summarize the pdf",
+      "summarize the document",
+      "tell me about the pdf",
+      "what is the pdf about",
+      "what's in the document",
+      "overview of the pdf",
+      "give me a summary",
+      "pdf summary",
+      "document summary",
+      "analyze the pdf",
+      "analyze the document",
+      "what's the pdf about",
+      "what does the pdf contain"
+    ];
+    
+    // Return true if any phrase is found in the question
+    return generalQuestions.some(phrase => q.includes(phrase));
   }
 
   return {

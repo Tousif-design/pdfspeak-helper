@@ -30,7 +30,13 @@ export async function extractTextFromPdf(file: File): Promise<string> {
       }
     };
     
-    const pdf = await loadingTask.promise;
+    const pdf = await loadingTask.promise.catch(error => {
+      console.error("PDF loading error:", error);
+      toast.error("Failed to load PDF", {
+        description: "The file format might not be supported or the file is corrupted"
+      });
+      throw new Error("PDF loading failed");
+    });
     
     console.log(`PDF loaded with ${pdf.numPages} pages`);
     let fullText = "";
@@ -59,11 +65,18 @@ export async function extractTextFromPdf(file: File): Promise<string> {
         batchPromises.push(extractPageText(pdf, i));
       }
       
-      // Wait for batch to complete
-      const batchResults = await Promise.all(batchPromises);
-      batchResults.forEach(pageText => {
-        fullText += pageText + '\n\n';
-      });
+      try {
+        // Wait for batch to complete
+        const batchResults = await Promise.all(batchPromises);
+        batchResults.forEach(pageText => {
+          if (pageText && typeof pageText === 'string') {
+            fullText += pageText + '\n\n';
+          }
+        });
+      } catch (batchError) {
+        console.error("Error processing batch:", batchError);
+        // Continue with other batches even if one fails
+      }
       
       // Update progress
       processedPages += batchPromises.length;
@@ -82,11 +95,16 @@ export async function extractTextFromPdf(file: File): Promise<string> {
     
     console.log("PDF extraction completed successfully, length:", fullText.length);
     
-    // If text is too short, it might indicate a scan/image-based PDF
+    // Validate the extracted text to ensure we got meaningful content
     if (fullText.trim().length < 100 && totalPages > 0) {
       toast.warning("Limited text extracted", {
         description: "This may be a scanned PDF with limited text content"
       });
+      
+      // Add a minimal fallback text to ensure we have something
+      if (fullText.trim().length === 0) {
+        fullText = `PDF document with ${totalPages} pages. Limited text content could be extracted. This may be a scanned document or image-based PDF.`;
+      }
     }
     
     return fullText;
@@ -240,4 +258,17 @@ export function checkPdfProcessingStatus(startTime: number): boolean {
   }
   
   return false; // Processing is still within acceptable time
+}
+
+/**
+ * Enhanced validation to ensure PDF content is usable
+ */
+export function validateExtractedPdfContent(text: string): boolean {
+  if (!text || text.trim().length < 50) {
+    toast.error("PDF content issue", {
+      description: "Not enough text could be extracted from the PDF"
+    });
+    return false;
+  }
+  return true;
 }

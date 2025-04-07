@@ -17,6 +17,7 @@ export function useMockTest(): UseMockTestReturn {
   const [mockTestAnswers, setMockTestAnswers] = useState<string[]>([]);
   const [userAnswers, setUserAnswers] = useState<string[]>([]);
   const [testScore, setTestScore] = useState<number | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   async function generateTest(pdfContent: string): Promise<void> {
     if (!pdfContent || pdfContent.trim().length < 100) {
@@ -26,7 +27,15 @@ export function useMockTest(): UseMockTestReturn {
       return;
     }
     
+    if (isGenerating) {
+      toast.info("Test generation in progress", {
+        description: "Please wait for the current test to finish generating"
+      });
+      return;
+    }
+    
     try {
+      setIsGenerating(true);
       console.log("Generating mock test from PDF content");
       console.log("PDF content length:", pdfContent.length);
       
@@ -35,10 +44,17 @@ export function useMockTest(): UseMockTestReturn {
         description: "Creating questions based on your PDF content"
       });
       
-      // Extra explicit MCQ format with requirement for EXACTLY 4 options
+      // Use a subset of the PDF content if it's too large
+      const maxContentLength = 30000; // Limit content size to get better response
+      const contentToUse = pdfContent.length > maxContentLength 
+        ? pdfContent.substring(0, maxContentLength) + "... [content truncated for processing]" 
+        : pdfContent;
+      
+      // Very explicit MCQ format with strict requirements
       const mcqFormat = `
-      Based on the following PDF content, generate 10 multiple choice questions with EXACTLY 4 options labeled A, B, C, D for each question.
-      Use this exact format without any deviation:
+      Based ONLY on the following PDF content, generate 10 multiple choice questions that test understanding of key concepts from this specific PDF content. EACH question MUST have EXACTLY 4 options labeled A, B, C, D.
+      
+      Use this exact format:
       
       1. [Question text directly related to the PDF content]
       A) [Option A text]
@@ -52,24 +68,50 @@ export function useMockTest(): UseMockTestReturn {
       C) [Option C text]
       D) [Option D text]
       
-      (Continue this exact pattern for all 10 questions)
+      [Continue the exact same pattern for all 10 questions]
       
       After ALL questions, include an ANSWERS section in this exact format:
       
       ANSWERS:
       1. [Correct letter (A, B, C, or D)]
       2. [Correct letter (A, B, C, or D)]
-      (And so on for all 10 questions)
+      [Continue for all 10 questions]
       
-      IMPORTANT:
-      1. Make sure all questions are specific to the PDF content provided, not general knowledge.
-      2. Ensure EVERY question has EXACTLY four options (A, B, C, D) without exception.
-      3. The questions should test understanding of key concepts from the PDF.
-      4. Use direct quotes or paraphrase content from the PDF where appropriate.
-      5. Provide one and only one correct answer for each question.
+      IMPORTANT REQUIREMENTS:
+      1. Make sure ALL questions are directly based on specific content from the provided PDF.
+      2. Each question MUST have EXACTLY four options (A, B, C, D).
+      3. Every question MUST have only ONE correct answer.
+      4. Use direct quotes or paraphrase content from the PDF.
+      5. The correct answer should be clearly derivable from the PDF content.
+      6. Make questions that test comprehension, not just memorization.
       `;
       
-      const response = await generateMockTest(pdfContent, "comprehensive", 10, mcqFormat);
+      const retryAttempts = 2;
+      let response = null;
+      let attemptCount = 0;
+      
+      // Try multiple times if needed
+      while (attemptCount < retryAttempts && !response) {
+        try {
+          attemptCount++;
+          response = await generateMockTest(contentToUse, "comprehensive", 10, mcqFormat);
+          
+          if (!response || response.length < 100) {
+            console.log(`Attempt ${attemptCount}: Invalid response, retrying...`);
+            response = null;
+            
+            if (attemptCount === retryAttempts) {
+              throw new Error("Failed to generate valid test content after multiple attempts");
+            }
+          }
+        } catch (attemptError) {
+          console.error(`Error in attempt ${attemptCount}:`, attemptError);
+          if (attemptCount === retryAttempts) {
+            throw attemptError;
+          }
+        }
+      }
+      
       console.log("Mock test generated, length:", response?.length);
       
       if (!response || response.length < 100) {
@@ -145,6 +187,8 @@ export function useMockTest(): UseMockTestReturn {
       toast.error("Failed to generate test", {
         description: "There was a problem creating test questions"
       });
+    } finally {
+      setIsGenerating(false);
     }
   }
 
@@ -236,6 +280,8 @@ export function useMockTest(): UseMockTestReturn {
     }
     
     let correctCount = 0;
+    const detailedResults = [];
+    
     for (let i = 0; i < answers.length; i++) {
       // Case insensitive comparison for multiple choice answers
       const userAnswer = answers[i]?.trim().toUpperCase();
@@ -243,17 +289,39 @@ export function useMockTest(): UseMockTestReturn {
       
       console.log(`Question ${i+1}: User answer: ${userAnswer}, Correct: ${correctAnswer}`);
       
-      if (userAnswer && correctAnswer && userAnswer === correctAnswer) {
+      const isCorrect = userAnswer && correctAnswer && userAnswer === correctAnswer;
+      if (isCorrect) {
         correctCount++;
       }
+      
+      detailedResults.push({
+        question: i + 1,
+        userAnswer,
+        correctAnswer,
+        isCorrect
+      });
     }
     
     const percentage = Math.round((correctCount / mockTestAnswers.length) * 100);
     console.log(`Test score: ${correctCount}/${mockTestAnswers.length} (${percentage}%)`);
     setTestScore(percentage);
     
-    toast.success(`Test submitted: Score ${percentage}%`, {
-      description: `You got ${correctCount} out of ${mockTestAnswers.length} questions correct`
+    // Show more detailed feedback
+    let feedbackMessage = `Score: ${percentage}%\n`;
+    feedbackMessage += `You got ${correctCount} out of ${mockTestAnswers.length} questions correct`;
+    
+    // Add recommendation based on score
+    if (percentage < 60) {
+      feedbackMessage += "\nRecommendation: Review the material again carefully.";
+    } else if (percentage < 80) {
+      feedbackMessage += "\nRecommendation: Good job! Focus on the topics you missed.";
+    } else {
+      feedbackMessage += "\nRecommendation: Excellent! You have a good understanding of the material.";
+    }
+    
+    toast.success(`Test submitted: ${percentage}%`, {
+      description: `${correctCount} out of ${mockTestAnswers.length} questions correct`,
+      duration: 5000,
     });
     
     return percentage;
