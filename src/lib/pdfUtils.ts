@@ -33,7 +33,7 @@ export async function extractTextFromPdf(file: File): Promise<string> {
     let toastId;
     if (totalPages > 3) {
       toastId = toast.loading(`Processing PDF (0/${totalPages} pages)`, {
-        duration: 100000
+        duration: 30000
       });
     }
     

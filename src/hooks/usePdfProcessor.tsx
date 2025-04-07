@@ -43,11 +43,12 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       setIsPdfAnalyzed(false);
       setPdfName(file.name);
       setPdfAnalysis(""); // Clear previous analysis
+      setAiResponse(""); // Clear previous response
       
       // Show processing toast
       const processingToastId = toast.loading(`Processing ${file.name}`, {
         description: "Extracting text from PDF...",
-        duration: 10000
+        duration: 30000 // Longer duration for processing
       });
       
       const text = await extractTextFromPdf(file);
@@ -59,6 +60,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
           description: "Could not extract sufficient text from this PDF. It may be image-based or secured."
         });
         setIsProcessingPdf(false);
+        speak("I had trouble extracting text from this PDF. It might be an image-based or secured document.");
         return;
       }
       
@@ -71,8 +73,9 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
       });
       
       setAiResponse("Analyzing your PDF...");
+      speak("Analyzing your PDF. This may take a moment.");
       
-      // Attempt to generate analysis immediately
+      // Attempt to generate analysis
       try {
         console.log("Starting PDF analysis...");
         const analysis = await analyzePdfContent(text);
@@ -89,7 +92,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
             description: "PDF has been analyzed and is ready for questions"
           });
           
-          const successMessage = `I've analyzed "${file.name}". This document appears to be about ${text.substring(0, 100)}... Would you like me to explain more about the content or do you have specific questions about it?`;
+          const successMessage = `I've analyzed "${file.name}". This document appears to discuss ${extractTopicFromContent(text)}. Would you like me to explain more about the content or do you have specific questions about it?`;
           setAiResponse(successMessage);
           speak(successMessage);
         } else {
@@ -104,7 +107,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
             description: "PDF has been analyzed with basic information"
           });
           
-          const fallbackMessage = `I've analyzed "${file.name}". Would you like me to explain the content or do you have specific questions about it?`;
+          const fallbackMessage = `I've analyzed "${file.name}". I've extracted the content and can answer specific questions about it.`;
           setAiResponse(fallbackMessage);
           speak(fallbackMessage);
         }
@@ -134,6 +137,21 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
     } finally {
       setIsProcessingPdf(false);
     }
+  }
+  
+  // Extract a likely topic from the PDF content
+  function extractTopicFromContent(text: string): string {
+    const firstParagraph = text.split('\n\n')[0] || '';
+    const firstSentence = firstParagraph.split('.')[0] || '';
+    
+    let topic = "the provided content";
+    
+    if (firstSentence.length > 10) {
+      // Using just first 100 chars of first sentence to extract topic
+      topic = firstSentence.substring(0, 100) + "...";
+    }
+    
+    return topic;
   }
   
   // Generate basic analysis from text when the AI fails
@@ -171,7 +189,7 @@ export function usePdfProcessor({ speak, stopSpeaking }: UsePdfProcessorProps): 
     
     return `
       # PDF Analysis
-      
+
       ## Document Overview
       - File Name: ${fileName}
       - Word Count: ${wordCount}

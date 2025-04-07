@@ -1,3 +1,4 @@
+
 import React, { useContext, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { DataContext } from "../context/UserContext.tsx";
@@ -6,7 +7,6 @@ import {
   Search, 
   ZoomIn, 
   ZoomOut, 
-  Download, 
   Copy, 
   BookOpen, 
   ArrowRight,
@@ -24,21 +24,23 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 const PDFViewer = () => {
   const context = useContext(DataContext);
   
-  // Add a check for undefined context
+  // Check for undefined context and show better loading state
   if (!context) {
-    return <div className="flex items-center justify-center h-[600px]">
-      <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
-      <p className="ml-3">Loading PDF viewer...</p>
-    </div>;
+    return (
+      <div className="flex flex-col items-center justify-center h-[600px]">
+        <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
+        <p className="text-lg font-medium">Loading PDF viewer...</p>
+      </div>
+    );
   }
   
-  const { pdfContent, pdfName, pdfAnalysis, isProcessingPdf, speak } = context;
+  const { pdfContent, pdfName, pdfAnalysis, isProcessingPdf, speak, isPdfAnalyzed } = context;
   
   const [numPages, setNumPages] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1.0);
   const [searchText, setSearchText] = useState("");
-  const [activeTab, setActiveTab] = useState("analysis"); // Always default to analysis
+  const [activeTab, setActiveTab] = useState("analysis"); // Default to analysis
   const [pdfBlob, setPdfBlob] = useState(null);
   const [loadError, setLoadError] = useState(false);
   const [contentView, setContentView] = useState("text"); // "text" or "pdf"
@@ -46,23 +48,23 @@ const PDFViewer = () => {
   
   // When PDF analysis becomes available, mark it as loaded
   useEffect(() => {
-    if (pdfAnalysis && !analysisLoaded) {
+    if (pdfAnalysis && !analysisLoaded && !isProcessingPdf) {
       setAnalysisLoaded(true);
       console.log("PDF analysis is now available");
     }
-  }, [pdfAnalysis, analysisLoaded]);
+  }, [pdfAnalysis, analysisLoaded, isProcessingPdf]);
   
   // Speak the analysis when it's first loaded
   useEffect(() => {
-    if (pdfAnalysis && analysisLoaded && activeTab === "analysis" && speak) {
+    if (pdfAnalysis && analysisLoaded && activeTab === "analysis" && speak && !isProcessingPdf) {
       const timer = setTimeout(() => {
         // Extract just the first part for speech to avoid overwhelming
-        const analysisPreview = pdfAnalysis.split('\n\n').slice(0, 3).join('\n\n');
-        speak(`PDF analysis complete. Here's a summary: ${analysisPreview}`);
+        const analysisIntro = "PDF analysis complete. Here's a summary of your document.";
+        speak(analysisIntro);
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [pdfAnalysis, analysisLoaded, activeTab, speak]);
+  }, [pdfAnalysis, analysisLoaded, activeTab, speak, isProcessingPdf]);
   
   // Create a Blob URL from the PDF content for display
   useEffect(() => {
@@ -70,7 +72,6 @@ const PDFViewer = () => {
       if (pdfContent) {
         try {
           // For demonstration - in a real app, you'd use the actual PDF file
-          // This is a placeholder approach since we only have text content
           const { jsPDF } = await import('jspdf');
           const doc = new jsPDF();
           
@@ -124,6 +125,9 @@ const PDFViewer = () => {
     console.error("Error loading PDF:", error);
     setLoadError(true);
     setContentView("text");  // Fall back to text view
+    toast.error("Could not display PDF preview", {
+      description: "Showing text content instead"
+    });
   };
   
   // Change page controls
@@ -140,6 +144,8 @@ const PDFViewer = () => {
   
   // Copy analysis to clipboard
   const copyAnalysis = () => {
+    if (!pdfAnalysis) return;
+    
     navigator.clipboard.writeText(pdfAnalysis)
       .then(() => {
         toast.success("Analysis copied to clipboard");
@@ -341,7 +347,7 @@ const PDFViewer = () => {
                   <div className="flex-grow overflow-auto bg-white rounded-lg shadow-inner p-4">
                     <div className="max-h-[600px] overflow-auto w-full p-4 border border-gray-200 rounded-lg bg-gray-50 text-left">
                       <pre className="whitespace-pre-wrap text-sm">
-                        {pdfContent}
+                        {pdfContent || "No text content available."}
                       </pre>
                     </div>
                   </div>
@@ -393,7 +399,7 @@ const PDFViewer = () => {
                     {pdfAnalysis.split('##').map((section, index) => {
                       // Handle the first section which might not start with ##
                       if (index === 0 && !section.startsWith(' ')) {
-                        return <div key={index}>{section}</div>;
+                        return <div key={index} className="mb-4">{section}</div>;
                       }
                       
                       // For sections with ## headers

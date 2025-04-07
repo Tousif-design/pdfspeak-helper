@@ -141,7 +141,7 @@ export function useSpeech() {
     if (!text) return;
     
     // Split very long text into smaller chunks for better performance
-    const maxChunkSize = 5000; // Characters
+    const maxChunkSize = 1000; // Characters - reduced for better responsiveness
     if (text.length > maxChunkSize) {
       const chunks = splitTextIntoChunks(text, maxChunkSize);
       console.log(`Split text into ${chunks.length} chunks for speaking`);
@@ -152,7 +152,10 @@ export function useSpeech() {
     
     // Start processing the queue if not already speaking
     if (!isSpeakingRef.current) {
+      console.log("Starting speech queue processing");
       processSpeechQueue();
+    } else {
+      console.log("Already speaking, text added to queue");
     }
   };
 

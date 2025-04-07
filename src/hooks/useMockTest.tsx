@@ -37,16 +37,16 @@ export function useMockTest(): UseMockTestReturn {
       
       // Extra explicit MCQ format with requirement for EXACTLY 4 options
       const mcqFormat = `
-      Generate 10 multiple choice questions with EXACTLY 4 options labeled A, B, C, D for each question.
+      Based on the following PDF content, generate 10 multiple choice questions with EXACTLY 4 options labeled A, B, C, D for each question.
       Use this exact format without any deviation:
       
-      1. [Question text]
+      1. [Question text directly related to the PDF content]
       A) [Option A text]
       B) [Option B text]
       C) [Option C text]
       D) [Option D text]
       
-      2. [Question text]
+      2. [Question text directly related to the PDF content]
       A) [Option A text]
       B) [Option B text]
       C) [Option C text]
@@ -61,13 +61,16 @@ export function useMockTest(): UseMockTestReturn {
       2. [Correct letter (A, B, C, or D)]
       (And so on for all 10 questions)
       
-      Make sure all questions are specific to the PDF content provided.
-      Ensure EVERY question has EXACTLY four options (A, B, C, D) without exception.
-      The questions and options must match the content provided in the PDF.
+      IMPORTANT:
+      1. Make sure all questions are specific to the PDF content provided, not general knowledge.
+      2. Ensure EVERY question has EXACTLY four options (A, B, C, D) without exception.
+      3. The questions should test understanding of key concepts from the PDF.
+      4. Use direct quotes or paraphrase content from the PDF where appropriate.
+      5. Provide one and only one correct answer for each question.
       `;
       
       const response = await generateMockTest(pdfContent, "comprehensive", 10, mcqFormat);
-      console.log("Mock test generated, length:", response.length);
+      console.log("Mock test generated, length:", response?.length);
       
       if (!response || response.length < 100) {
         toast.error("Failed to generate test", {
@@ -183,10 +186,23 @@ export function useMockTest(): UseMockTestReturn {
         
         // Now create a properly formatted question with all options
         formattedQuestions += `${questionNumber}. ${questionText}\n`;
-        formattedQuestions += `A) Option A for question ${questionNumber}\n`;
-        formattedQuestions += `B) Option B for question ${questionNumber}\n`;
-        formattedQuestions += `C) Option C for question ${questionNumber}\n`;
-        formattedQuestions += `D) Option D for question ${questionNumber}\n\n`;
+        
+        // Add any existing options
+        const existingOptions: {[key: string]: string} = {};
+        
+        ['A', 'B', 'C', 'D'].forEach(option => {
+          const optionRegex = new RegExp(`${option}\\)\\s*([^\\n]+)`, 'i');
+          const match = block.match(optionRegex);
+          if (match && match[1]) {
+            existingOptions[option] = match[1].trim();
+          }
+        });
+        
+        // Now add all options to formatted question
+        formattedQuestions += `A) ${existingOptions['A'] || `Option A for question ${questionNumber}`}\n`;
+        formattedQuestions += `B) ${existingOptions['B'] || `Option B for question ${questionNumber}`}\n`;
+        formattedQuestions += `C) ${existingOptions['C'] || `Option C for question ${questionNumber}`}\n`;
+        formattedQuestions += `D) ${existingOptions['D'] || `Option D for question ${questionNumber}`}\n\n`;
         
         console.log(`Fixed formatting for question ${questionNumber} - missing options`);
       }
