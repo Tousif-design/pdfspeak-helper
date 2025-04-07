@@ -1,9 +1,11 @@
 
-import React, { createContext, useState, useEffect } from "react";
+import React, { createContext, useState, useEffect, useRef } from "react";
 import { useSpeech } from "../hooks/useSpeech";
 import { usePdfProcessor } from "../hooks/usePdfProcessor";
 import { useMockTest } from "../hooks/useMockTest";
 import { useInterview } from "../hooks/useInterview";
+import useSpeechRecognition from "../hooks/useSpeechRecognition";
+import { toast } from "sonner";
 
 interface UserContextType {
   speak: (text: string) => void;
@@ -49,17 +51,14 @@ const DataContext = createContext<UserContextType | null>(null);
 
 function UserContext({ children }: { children: React.ReactNode }) {
   const [inputText, setInputText] = useState("");
+  const [recognizedSpeech, setRecognizedSpeech] = useState("");
 
   // Initialize all our custom hooks
   const speechHook = useSpeech();
   const { 
     speak, 
     stopSpeaking, 
-    toggleRecognition, 
-    isListening, 
-    speaking,
-    recognizedSpeech,
-    setRecognizedSpeech
+    speaking
   } = speechHook;
 
   const pdfHook = usePdfProcessor({ speak, stopSpeaking });
@@ -103,17 +102,34 @@ function UserContext({ children }: { children: React.ReactNode }) {
     setInterviewQuestions
   } = interviewHook;
 
+  // Set up speech recognition
+  const { isListening, recognizedText, toggleRecognition } = useSpeechRecognition({
+    onSpeechRecognized: (text) => {
+      console.log("Speech recognized in context:", text);
+      setRecognizedSpeech(text);
+    },
+    continuous: true
+  });
+
   // We need to override these functions to pass the PDF content
   const prepareInterviewQuestionsFromPdf = async (): Promise<string[]> => {
+    if (!pdfContent) {
+      toast.error("Please upload a PDF first", { 
+        description: "Need PDF content to generate interview questions" 
+      });
+      return [];
+    }
     return originalPrepareInterviewQuestions(pdfContent);
   };
 
   const answerInterviewQuestion = async (answer: string): Promise<void> => {
-    // This is where we inject the pdfContent
     try {
       await originalAnswerInterviewQuestion(answer);
     } catch (error) {
       console.error("Error in interview answer:", error);
+      toast.error("Failed to process your answer", {
+        description: "Please try again or check your connection"
+      });
     }
   };
 
@@ -125,10 +141,15 @@ function UserContext({ children }: { children: React.ReactNode }) {
     }
   }
 
-  // Hook up the recognition results to aiResponseHandler
+  // When recognized text changes, send it to the AI handler
   useEffect(() => {
-    if (recognizedSpeech) {
+    if (recognizedSpeech && recognizedSpeech.trim() !== '') {
+      console.log("Processing recognized speech:", recognizedSpeech);
       aiResponseHandler(recognizedSpeech);
+      // Clear the recognizedSpeech after processing
+      setTimeout(() => {
+        setRecognizedSpeech("");
+      }, 500);
     }
   }, [recognizedSpeech]);
 
@@ -142,12 +163,20 @@ function UserContext({ children }: { children: React.ReactNode }) {
          userQuery.toLowerCase().includes("quiz") || 
          userQuery.toLowerCase().includes("exam"))
       ) {
-        await generateTest(pdfContent);
+        try {
+          console.log("Generating test from PDF content...");
+          await generateTest(pdfContent);
+        } catch (error) {
+          console.error("Error generating test:", error);
+          toast.error("Failed to generate test", {
+            description: "There was an error creating your test"
+          });
+        }
       }
     };
 
     handleTestRequest();
-  }, [userQuery, pdfContent]);
+  }, [userQuery, pdfContent, generateTest]);
 
   const value: UserContextType = {
     speak,
