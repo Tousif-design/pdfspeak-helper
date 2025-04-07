@@ -25,15 +25,15 @@ const Index = () => {
     !context.pdfContent;
   
   useEffect(() => {
-    // Simulate loading completion
+    // Simulate loading completion with shorter delay
     const timer = setTimeout(() => {
       setLoading(false);
-    }, 1000);
+    }, 800);
     
     return () => clearTimeout(timer);
   }, []);
   
-  // Handle mock test generation - always declare this effect
+  // Handle mock test generation
   useEffect(() => {
     if (context && context.mockTest && activeTab === "chat") {
       setActiveTab("test");
@@ -43,16 +43,37 @@ const Index = () => {
     }
   }, [context?.mockTest, activeTab]);
 
-  // Handle speech recognition - always declare this effect
+  // Handle speech recognition with error handling
   useEffect(() => {
     if (context && context.recognizedSpeech) {
-      const speechEvent = new CustomEvent('speechRecognition', {
-        detail: { transcript: context.recognizedSpeech }
-      });
-      
-      window.dispatchEvent(speechEvent);
+      try {
+        console.log("Speech recognized:", context.recognizedSpeech);
+        const speechEvent = new CustomEvent('speechRecognition', {
+          detail: { transcript: context.recognizedSpeech }
+        });
+        
+        window.dispatchEvent(speechEvent);
+        
+        // Reset the recognized speech after dispatching the event
+        setTimeout(() => {
+          if (context.setRecognizedSpeech) {
+            context.setRecognizedSpeech("");
+          }
+        }, 100);
+      } catch (error) {
+        console.error("Error handling speech recognition:", error);
+      }
     }
   }, [context?.recognizedSpeech]);
+  
+  // Add an effect to check if the application is actually rendering
+  useEffect(() => {
+    console.log("Application rendering status:", {
+      contextAvailable: !!context,
+      activeTab,
+      loading
+    });
+  }, [context, activeTab, loading]);
   
   if (loading) {
     return (
@@ -86,7 +107,7 @@ const Index = () => {
     );
   }
   
-  const { pdfContent, mockTest, recognizedSpeech } = context;
+  const { pdfContent, mockTest } = context;
 
   return (
     <main className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-slate-100 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-blue-950">
@@ -101,10 +122,12 @@ const Index = () => {
           pdfContent={pdfContent} 
         />
         
-        <PdfNotification 
-          showPdfNotification={showPdfNotification} 
-          setActiveTab={setActiveTab}
-        />
+        {showPdfNotification && (
+          <PdfNotification 
+            showPdfNotification={showPdfNotification} 
+            setActiveTab={setActiveTab}
+          />
+        )}
         
         <div className="flex-1 flex flex-col">
           <motion.div

@@ -47,12 +47,12 @@ export async function extractTextFromPdf(file: File): Promise<string> {
     let toastId;
     if (totalPages > 3) {
       toastId = toast.loading(`Processing PDF (0/${totalPages} pages)`, {
-        duration: 30000
+        duration: 60000 // Extended the duration to give more time for processing
       });
     }
     
     // Process pages in parallel with limited concurrency
-    const concurrency = 3;
+    const concurrency = 2; // Reduced concurrency to avoid memory issues
     const batchSize = Math.min(concurrency, totalPages);
     let processedPages = 0;
     
@@ -73,6 +73,11 @@ export async function extractTextFromPdf(file: File): Promise<string> {
             fullText += pageText + '\n\n';
           }
         });
+
+        // Force garbage collection between batches to reduce memory pressure
+        if (typeof window !== 'undefined' && (window as any).gc) {
+          try { (window as any).gc(); } catch (e) {}
+        }
       } catch (batchError) {
         console.error("Error processing batch:", batchError);
         // Continue with other batches even if one fails
@@ -84,6 +89,11 @@ export async function extractTextFromPdf(file: File): Promise<string> {
         toast.loading(`Processing PDF (${processedPages}/${totalPages} pages)`, {
           id: toastId
         });
+      }
+      
+      // Add a small delay between batches to prevent UI freezing
+      if (batchStart + batchSize <= totalPages) {
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
     
@@ -124,8 +134,14 @@ async function extractPageText(pdf: pdfjs.PDFDocumentProxy, pageNum: number): Pr
   try {
     const page = await pdf.getPage(pageNum);
     const textContent = await page.getTextContent();
+    
+    if (!textContent || !textContent.items || textContent.items.length === 0) {
+      console.warn(`No text content found on page ${pageNum}`);
+      return `[Page ${pageNum} - No text content]`;
+    }
+    
     const pageText = textContent.items
-      .map((item: any) => item.str)
+      .map((item: any) => item.str || '')
       .join(' ');
     
     console.log(`Extracted page ${pageNum}: ${pageText.substring(0, 50)}...`);
