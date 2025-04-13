@@ -12,13 +12,12 @@ import TabNavigation from "../components/TabNavigation";
 import PdfNotification from "../components/PdfNotification";
 import StudyTools from "../components/StudyTools";
 import { toast } from "sonner";
-import { Loader2, AlertTriangle } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 const Index = () => {
   const context = useContext(DataContext);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("chat");
-  const [renderError, setRenderError] = useState<string | null>(null);
   
   // Always declare this value at the top level, not conditionally
   const showPdfNotification = context && 
@@ -44,32 +43,37 @@ const Index = () => {
     }
   }, [context?.mockTest, activeTab]);
 
-  // Set up error boundary
-  useEffect(() => {
-    const handleError = (event: ErrorEvent) => {
-      console.error("Caught runtime error:", event.error);
-      setRenderError(`Application error: ${event.error?.message || 'Unknown error'}`);
-      // Prevent default browser error handling
-      event.preventDefault();
-    };
-
-    window.addEventListener('error', handleError);
-    
-    return () => {
-      window.removeEventListener('error', handleError);
-    };
-  }, []);
-
-  // Handle speech recognition
+  // Handle speech recognition with error handling
   useEffect(() => {
     if (context && context.recognizedSpeech) {
       try {
-        console.log("Speech recognized in Index component:", context.recognizedSpeech);
+        console.log("Speech recognized:", context.recognizedSpeech);
+        const speechEvent = new CustomEvent('speechRecognition', {
+          detail: { transcript: context.recognizedSpeech }
+        });
+        
+        window.dispatchEvent(speechEvent);
+        
+        // Reset the recognized speech after dispatching the event
+        setTimeout(() => {
+          if (context.setRecognizedSpeech) {
+            context.setRecognizedSpeech("");
+          }
+        }, 100);
       } catch (error) {
         console.error("Error handling speech recognition:", error);
       }
     }
   }, [context?.recognizedSpeech]);
+  
+  // Add an effect to check if the application is actually rendering
+  useEffect(() => {
+    console.log("Application rendering status:", {
+      contextAvailable: !!context,
+      activeTab,
+      loading
+    });
+  }, [context, activeTab, loading]);
   
   if (loading) {
     return (
@@ -81,32 +85,14 @@ const Index = () => {
     );
   }
   
-  if (renderError) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-b from-background via-background to-secondary/20">
-        <div className="text-center p-6 max-w-md">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
-            <AlertTriangle className="h-8 w-8 text-red-500" />
-          </div>
-          <h2 className="text-xl font-bold mb-2">Application Error</h2>
-          <p className="mb-4">{renderError}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
-          >
-            Refresh Page
-          </button>
-        </div>
-      </div>
-    );
-  }
-  
   if (!context) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-b from-background via-background to-secondary/20">
         <div className="text-center p-6 max-w-md">
           <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
-            <AlertTriangle className="h-8 w-8 text-red-500" />
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
           </div>
           <h2 className="text-xl font-bold mb-2">Application Error</h2>
           <p className="mb-4">We're having trouble loading your data. Please try refreshing the page.</p>
