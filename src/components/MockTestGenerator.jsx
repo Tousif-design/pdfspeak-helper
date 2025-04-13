@@ -1,3 +1,4 @@
+
 import React, { useContext, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { DataContext } from "../context/UserContext";
@@ -7,22 +8,7 @@ import { toast } from "sonner";
 import { downloadBlob, generatePdf } from "../lib/pdfUtils";
 
 const MockTestGenerator = () => {
-  const context = useContext(DataContext);
-  
-  // Handle undefined context with loading state
-  if (!context) {
-    return (
-      <div className="w-full max-w-4xl mx-auto mt-8 glass-card rounded-xl p-8 flex items-center justify-center">
-        <div className="flex flex-col items-center">
-          <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin mb-4"></div>
-          <h3 className="text-xl font-medium mb-2">Loading Test Generator</h3>
-          <p className="text-muted-foreground">Please wait while we initialize the test generator...</p>
-        </div>
-      </div>
-    );
-  }
-  
-  const { pdfContent, mockTest, mockTestAnswers, handleTestSubmit, testScore } = context;
+  const { pdfContent, mockTest, mockTestAnswers, handleTestSubmit, testScore } = useContext(DataContext);
   
   const [loading, setLoading] = useState(false);
   const [testStarted, setTestStarted] = useState(false);
