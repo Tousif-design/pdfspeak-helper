@@ -19,10 +19,6 @@ export default {
 			}
 		},
 		extend: {
-			fontFamily: {
-				sans: ['Inter', 'system-ui', 'sans-serif'],
-				display: ['Cal Sans', 'Inter', 'system-ui', 'sans-serif'],
-			},
 			colors: {
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',
@@ -73,10 +69,6 @@ export default {
 				md: 'calc(var(--radius) - 2px)',
 				sm: 'calc(var(--radius) - 4px)'
 			},
-			boxShadow: {
-				'premium-card': '0px 10px 30px rgba(0, 0, 0, 0.08)',
-				'premium-button': '0px 4px 12px rgba(0, 0, 0, 0.15)',
-			},
 			keyframes: {
 				'accordion-down': {
 					from: { height: '0' },
@@ -125,12 +117,7 @@ export default {
 				ripple: {
 					'0%': { transform: 'scale(0)', opacity: '1' },
 					'100%': { transform: 'scale(4)', opacity: '0' }
-				},
-				shimmer: {
-					'100%': {
-						transform: 'translateX(100%)',
-					},
-				},
+				}
 			},
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
@@ -144,12 +131,8 @@ export default {
 				'pulse-subtle': 'pulse-subtle 2s infinite ease-in-out',
 				float: 'float 6s infinite ease-in-out',
 				'spin-slow': 'spin-slow 8s linear infinite',
-				ripple: 'ripple 1s linear',
-				shimmer: 'shimmer 1.5s infinite',
-			},
-			backgroundImage: {
-				'premium-gradient': 'linear-gradient(to right, var(--tw-gradient-stops))',
-			},
+				ripple: 'ripple 1s linear'
+			}
 		}
 	},
 	plugins: [require("tailwindcss-animate")],

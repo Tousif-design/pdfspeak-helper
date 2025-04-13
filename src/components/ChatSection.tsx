@@ -1,8 +1,8 @@
 
-import React, { useContext, useEffect } from "react";
+import React, { useContext } from "react";
 import { motion } from "framer-motion";
 import { DataContext } from "../context/UserContext";
-import { FileText, BookOpen, Bot, Upload, PauseCircle, PlayCircle, Mic, MicOff } from "lucide-react";
+import { FileText, BookOpen, Bot, Upload, PauseCircle, PlayCircle } from "lucide-react";
 import ExampleQueries from './ExampleQueries';
 import { toast } from "sonner";
 
@@ -13,29 +13,8 @@ interface ChatSectionProps {
 const ChatSection: React.FC<ChatSectionProps> = ({ setActiveTab }) => {
   const context = useContext(DataContext);
   
-  // Use effect to update UI when user query changes
-  useEffect(() => {
-    if (context?.userQuery) {
-      console.log("User query updated:", context.userQuery);
-    }
-  }, [context?.userQuery]);
-  
-  // Use effect to update UI when AI response changes
-  useEffect(() => {
-    if (context?.aiResponse) {
-      console.log("AI response updated", {
-        responseLength: context.aiResponse.length,
-        isThinking: context.aiResponse === "Thinking... 🤔" || context.aiResponse === "Analyzing your PDF..."
-      });
-    }
-  }, [context?.aiResponse]);
-  
   if (!context) {
-    return (
-      <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg text-center">
-        <p className="text-red-600 dark:text-red-400">Context data is unavailable. Please refresh the page to reconnect.</p>
-      </div>
-    );
+    return <div>Loading context...</div>;
   }
   
   const { 
@@ -69,19 +48,6 @@ const ChatSection: React.FC<ChatSectionProps> = ({ setActiveTab }) => {
     }
   };
 
-  const handleToggleMicrophone = () => {
-    toggleRecognition();
-    if (!isListening) {
-      toast("Microphone activated", {
-        description: "I'm listening for your question",
-      });
-    } else {
-      toast("Microphone deactivated", {
-        description: "Voice input turned off",
-      });
-    }
-  };
-
   return (
     <div className="max-w-4xl mx-auto">
       {(userQuery || aiResponse) && (
@@ -102,25 +68,6 @@ const ChatSection: React.FC<ChatSectionProps> = ({ setActiveTab }) => {
               <PlayCircle className="w-4 h-4" />
               <span>Resume Voice</span>
             </button>
-            
-            <button
-              onClick={handleToggleMicrophone}
-              className={`flex items-center gap-2 ${
-                isListening ? 'bg-blue-500 hover:bg-blue-600' : 'bg-gray-500 hover:bg-gray-600'
-              } text-white py-2 px-4 rounded-full transition-colors`}
-            >
-              {isListening ? (
-                <>
-                  <MicOff className="w-4 h-4" />
-                  <span>Stop Listening</span>
-                </>
-              ) : (
-                <>
-                  <Mic className="w-4 h-4" />
-                  <span>Start Listening</span>
-                </>
-              )}
-            </button>
           </div>
           
           {userQuery && (
@@ -135,7 +82,7 @@ const ChatSection: React.FC<ChatSectionProps> = ({ setActiveTab }) => {
                 </span>
                 <span className="text-xs text-muted-foreground">Just now</span>
               </div>
-              <p className="whitespace-pre-line break-words">{userQuery}</p>
+              <p>{userQuery}</p>
             </motion.div>
           )}
 
@@ -161,7 +108,7 @@ const ChatSection: React.FC<ChatSectionProps> = ({ setActiveTab }) => {
                     <span className="inline-block w-1.5 h-1.5 bg-primary rounded-full animate-pulse delay-300"></span>
                   </div>
                 ) : (
-                  <p className="whitespace-pre-line break-words">{aiResponse}</p>
+                  <p className="whitespace-pre-line">{aiResponse}</p>
                 )}
               </div>
             </motion.div>
@@ -177,8 +124,6 @@ const ChatSection: React.FC<ChatSectionProps> = ({ setActiveTab }) => {
           handleFileUpload={handleFileUpload} 
           isProcessingPdf={isProcessingPdf}
           setActiveTab={setActiveTab}
-          isListening={isListening}
-          toggleRecognition={toggleRecognition}
         />
       )}
     </div>
@@ -192,20 +137,9 @@ interface WelcomeSectionProps {
   handleFileUpload: (event: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
   isProcessingPdf: boolean;
   setActiveTab: (tab: string) => void;
-  isListening: boolean;
-  toggleRecognition: () => void;
 }
 
-const WelcomeSection: React.FC<WelcomeSectionProps> = ({ 
-  pdfContent, 
-  pdfName, 
-  isPdfAnalyzed, 
-  handleFileUpload, 
-  isProcessingPdf, 
-  setActiveTab,
-  isListening,
-  toggleRecognition
-}) => {
+const WelcomeSection: React.FC<WelcomeSectionProps> = ({ pdfContent, pdfName, isPdfAnalyzed, handleFileUpload, isProcessingPdf, setActiveTab }) => {
   return (
     <div className="text-center py-12">
       <motion.div
@@ -226,7 +160,7 @@ const WelcomeSection: React.FC<WelcomeSectionProps> = ({
               : "Your PDF is being analyzed. Please wait a moment before asking questions."}
           </p>
 
-          <div className="flex justify-center gap-3 mt-4 flex-wrap">
+          <div className="flex justify-center gap-3 mt-4">
             <button
               onClick={() => setActiveTab("pdf")}
               className="flex items-center gap-2 bg-primary/10 text-primary py-2 px-4 rounded-full hover:bg-primary/20 transition-colors"
@@ -242,16 +176,6 @@ const WelcomeSection: React.FC<WelcomeSectionProps> = ({
               <BookOpen className="w-4 h-4" />
               <span>Generate Mock Test</span>
             </button>
-            
-            <button
-              onClick={toggleRecognition}
-              className={`flex items-center gap-2 ${
-                isListening ? 'bg-blue-500 text-white' : 'bg-primary/10 text-primary'
-              } py-2 px-4 rounded-full hover:bg-primary/20 transition-colors mt-2 sm:mt-0`}
-            >
-              {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-              <span>{isListening ? 'Stop Listening' : 'Ask with Voice'}</span>
-            </button>
           </div>
         </>
       ) : (
@@ -261,11 +185,11 @@ const WelcomeSection: React.FC<WelcomeSectionProps> = ({
             Ask questions, upload a PDF for analysis, or try voice commands by clicking the microphone button.
           </p>
 
-          <div className="mt-6 mb-6 flex flex-wrap justify-center gap-3">
+          <div className="mt-6 mb-6">
             <button
               onClick={() => document.getElementById('pdf-upload')?.click()}
               disabled={isProcessingPdf}
-              className="flex items-center gap-2 bg-primary text-white py-2 px-4 rounded-full hover:bg-primary/90 transition-colors"
+              className="flex items-center gap-2 bg-primary text-white py-2 px-4 rounded-full mx-auto hover:bg-primary/90 transition-colors"
             >
               <Upload className="w-4 h-4" />
               <span>Upload PDF</span>
@@ -277,16 +201,6 @@ const WelcomeSection: React.FC<WelcomeSectionProps> = ({
                 disabled={isProcessingPdf}
                 className="sr-only"
               />
-            </button>
-            
-            <button
-              onClick={toggleRecognition}
-              className={`flex items-center gap-2 ${
-                isListening ? 'bg-blue-500 text-white' : 'bg-gray-600 text-white'
-              } py-2 px-4 rounded-full hover:opacity-90 transition-colors`}
-            >
-              {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-              <span>{isListening ? 'Stop Listening' : 'Start Listening'}</span>
             </button>
           </div>
         </>

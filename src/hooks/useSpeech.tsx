@@ -2,359 +2,369 @@
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 
-export function useSpeech() {
+export interface UseSpeechReturn {
+  speak: (text: string) => void;
+  stopSpeaking: () => void;
+  toggleRecognition: () => void;
+  isListening: boolean;
+  speaking: boolean;
+  recognizedSpeech: string;
+  setRecognizedSpeech: React.Dispatch<React.SetStateAction<string>>;
+}
+
+export function useSpeech(): UseSpeechReturn {
   const [speaking, setSpeaking] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  const [recognition, setRecognition] = useState<any>(null);
+  const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
   const [recognizedSpeech, setRecognizedSpeech] = useState("");
-  const speechQueueRef = useRef<string[]>([]);
-  const isSpeakingRef = useRef<boolean>(false);
-  const speechSynthesisRef = useRef<SpeechSynthesis | null>(null);
-  const recognitionActiveRef = useRef<boolean>(false);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const maxReconnectAttempts = 3;
 
-  // Initialize speech recognition and synthesis
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
+  function stopSpeaking(): void {
+    if (speaking) {
+      window.speechSynthesis.cancel();
+      setSpeaking(false);
+    }
+  }
+
+  function cleanText(text: string): string {
+    if (!text) return "";
+
+    return text
+      .replace(/google/gi, "Tousif")
+      .replace(/satric/gi, "Tousif")
+      .replace(/goolge/gi, "Tousif")
+      .replace(/\*\*/g, "") // Removes double asterisks (**)
+      .replace(/\*/g, "") // Removes single asterisks (*)
+      .replace(/\*\)/g, "") // Removes `*)`
+      .trim();
+  }
+
+  function speak(text: string): void {
+    if (!text) return;
+    console.log("Speaking:", text.substring(0, 50) + "...");
+
+    stopSpeaking();
+
+    let cleanedText = cleanText(text);
     
-    // Initialize speech synthesis
-    speechSynthesisRef.current = window.speechSynthesis;
+    const utterance = new SpeechSynthesisUtterance(cleanedText);
+    utterance.volume = 1;
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.lang = "en-US";
+    utteranceRef.current = utterance;
     
-    // Check if speech synthesis is available
-    if (!speechSynthesisRef.current) {
-      console.warn("Speech synthesis not supported in this browser");
-    } else {
-      console.log("Speech synthesis initialized");
+    // Get available voices and select a suitable one
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length) {
+      const englishVoice = voices.find(voice => 
+        voice.lang.includes('en') && voice.name.includes('Female')
+      ) || voices.find(voice => voice.lang.includes('en')) || voices[0];
       
-      // Pre-warm the speech synthesis
-      const utterance = new SpeechSynthesisUtterance("");
-      speechSynthesisRef.current.speak(utterance);
+      utterance.voice = englishVoice;
     }
     
-    // Initialize speech recognition
-    let SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      try {
-        let recog = new SpeechRecognition();
-        recog.continuous = true;
-        recog.interimResults = true; // Enable interim results for better responsiveness
-        recog.lang = "en-US";
-        recog.maxAlternatives = 1;
-
-        recog.onstart = () => {
-          console.log("Speech recognition started...");
-          setIsListening(true);
-          recognitionActiveRef.current = true;
-          toast.success("Voice recognition active", {
-            description: "I'm listening to your question"
-          });
-        };
-
-        recog.onresult = (event: any) => {
-          const resultIndex = event.resultIndex;
-          const transcript = event.results[resultIndex][0].transcript;
-          const isFinal = event.results[resultIndex].isFinal;
-          
-          console.log("Speech recognition result:", transcript, "Final:", isFinal);
-          
-          if (isFinal) {
-            // Only set recognized speech when we have a final result
-            console.log("Final transcript:", transcript);
-            setRecognizedSpeech(transcript);
+    // Handle long texts by chunking
+    if (cleanedText.length > 200) {
+      const sentences = cleanedText.match(/[^.!?]+[.!?]+/g) || [];
+      
+      if (sentences.length > 3) {
+        let chunks: string[] = [];
+        let currentChunk = "";
+        
+        sentences.forEach(sentence => {
+          if (currentChunk.length + sentence.length < 200) {
+            currentChunk += sentence;
+          } else {
+            chunks.push(currentChunk);
+            currentChunk = sentence;
           }
-        };
-
-        recog.onend = () => {
-          console.log("Speech recognition stopped...");
-          // Only update UI state if this wasn't triggered by a restart
-          if (recognitionActiveRef.current) {
-            setIsListening(false);
-            recognitionActiveRef.current = false;
-          } else if (isListening) {
-            // Try to restart if it stopped unexpectedly
+        });
+        
+        if (currentChunk) {
+          chunks.push(currentChunk);
+        }
+        
+        utterance.text = chunks[0];
+        let chunkIndex = 1;
+        
+        utterance.onstart = () => {
+          setSpeaking(true);
+          if (isListening && recognition) {
             try {
-              console.log("Attempting to restart recognition...");
-              recog.start();
-              recognitionActiveRef.current = true;
-            } catch (e) {
-              console.error("Failed to restart recognition:", e);
+              recognition.stop();
               setIsListening(false);
+            } catch (error) {
+              console.error("Error stopping recognition during speech:", error);
             }
           }
         };
-
-        recog.onerror = (event: any) => {
-          console.error("Speech recognition error:", event.error);
-          recognitionActiveRef.current = false;
-          setIsListening(false);
-          
-          if (event.error === 'not-allowed') {
-            toast.error("Microphone access denied", {
-              description: "Please allow microphone access to use speech recognition"
-            });
-          } else if (event.error === 'network') {
-            toast.error("Network error", {
-              description: "Check your internet connection and try again"
-            });
+        
+        utterance.onend = () => {
+          if (chunkIndex < chunks.length) {
+            console.log(`Speaking chunk ${chunkIndex+1}/${chunks.length}`);
+            const nextUtterance = new SpeechSynthesisUtterance(chunks[chunkIndex]);
+            nextUtterance.volume = 1;
+            nextUtterance.rate = 1.0;
+            nextUtterance.pitch = 1.0;
+            nextUtterance.voice = utterance.voice;
+            utteranceRef.current = nextUtterance;
+            
+            nextUtterance.onend = utterance.onend;
+            
+            chunkIndex++;
+            window.speechSynthesis.speak(nextUtterance);
           } else {
-            toast.error("Voice recognition error", {
-              description: `${event.error || "Unknown error"}. Try again.`
-            });
+            setSpeaking(false);
+            console.log("Finished speaking all chunks");
+            
+            // Wait a short delay before reactivating listening
+            setTimeout(() => {
+              if (recognition && !isListening) {
+                try {
+                  setIsListening(true);
+                  recognition.start();
+                  console.log("Reactivated listening after speech");
+                } catch (error) {
+                  console.error("Error restarting recognition after speech:", error);
+                }
+              }
+            }, 500);
           }
         };
-
-        setRecognition(recog);
-      } catch (error) {
-        console.error("Error initializing speech recognition:", error);
-        toast.error("Voice recognition not available", {
-          description: "Your browser may not support this feature"
-        });
+        
+        window.speechSynthesis.speak(utterance);
+        return;
       }
-    } else {
-      console.warn("Speech Recognition is not supported in this browser.");
-      toast.error("Voice recognition not supported", {
-        description: "Please try using a modern browser like Chrome"
-      });
     }
     
-    // Cleanup
+    utterance.onstart = () => {
+      setSpeaking(true);
+      if (isListening && recognition) {
+        try {
+          recognition.stop();
+          setIsListening(false);
+        } catch (error) {
+          console.error("Error stopping recognition during speech:", error);
+        }
+      }
+    };
+
+    utterance.onend = () => {
+      setSpeaking(false);
+      console.log("Speech ended, attempting to restart recognition");
+      
+      // Wait a short delay before reactivating listening
+      setTimeout(() => {
+        if (recognition && !isListening) {
+          try {
+            setIsListening(true);
+            recognition.start();
+            console.log("Recognition restarted after speech end");
+          } catch (error) {
+            console.error("Error restarting recognition after speech:", error);
+            resetRecognition();
+          }
+        }
+      }, 500);
+    };
+
+    try {
+      window.speechSynthesis.speak(utterance);
+    } catch (error) {
+      console.error("Error during speech synthesis:", error);
+      setSpeaking(false);
+      toast.error("Speech synthesis error", {
+        description: "Unable to speak the response"
+      });
+    }
+  }
+
+  // Function to reset and recreate recognition
+  function resetRecognition() {
+    if (recognition) {
+      try {
+        recognition.stop();
+      } catch (e) {
+        console.log("Error stopping recognition during reset:", e);
+      }
+    }
+    
+    reconnectAttemptsRef.current += 1;
+    if (reconnectAttemptsRef.current <= maxReconnectAttempts) {
+      console.log(`Attempting to reset recognition (${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
+      setupSpeechRecognition();
+    } else {
+      console.error("Max reconnection attempts reached");
+      toast.error("Voice recognition unavailable", {
+        description: "Please refresh the page to try again"
+      });
+    }
+  }
+
+  // Initialize voices and speech synthesis
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      const loadVoices = () => {
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length > 0) {
+          console.log(`${voices.length} voices loaded`);
+        }
+      };
+      
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+      
+      // Periodically check speech synthesis state
+      const intervalId = setInterval(() => {
+        if (speaking && utteranceRef.current) {
+          if (window.speechSynthesis.paused) {
+            console.log("Speech synthesis was paused, resuming...");
+            window.speechSynthesis.resume();
+          }
+        }
+      }, 1000);
+      
+      return () => {
+        clearInterval(intervalId);
+      };
+    }
+  }, [speaking]);
+
+  // Setup speech recognition
+  useEffect(() => {
+    setupSpeechRecognition();
+    
     return () => {
       if (recognition) {
         try {
           recognition.stop();
-          recognitionActiveRef.current = false;
-        } catch (e) {
-          console.error("Error stopping recognition during cleanup:", e);
+        } catch (error) {
+          console.error("Error stopping recognition on cleanup:", error);
         }
       }
       
-      if (speechSynthesisRef.current) {
-        speechSynthesisRef.current.cancel();
-      }
+      stopSpeaking();
     };
   }, []);
 
-  // Function to manage the speech queue
-  const processSpeechQueue = () => {
-    if (speechQueueRef.current.length > 0 && !isSpeakingRef.current) {
-      const nextText = speechQueueRef.current.shift();
-      if (nextText) {
-        speakText(nextText);
-      }
-    }
-  };
+  function setupSpeechRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognitionInstance = new SpeechRecognition();
+      recognitionInstance.continuous = true;
+      recognitionInstance.interimResults = false;
+      recognitionInstance.lang = "en-US";
+      recognitionInstance.maxAlternatives = 1;
 
-  // Actual speak function that handles the direct speech synthesis
-  const speakText = (text: string) => {
-    if (!text || !speechSynthesisRef.current) return;
-    
-    try {
-      // Clean the text
-      const cleanedText = cleanText(text);
-      
-      // Create speech synthesis utterance
-      let utterance = new SpeechSynthesisUtterance(cleanedText);
-      utterance.volume = 1;
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
-      utterance.lang = "en-US";
-      
-      // Set up the callbacks
-      utterance.onstart = () => {
-        console.log("Started speaking...");
-        isSpeakingRef.current = true;
-        setSpeaking(true);
+      recognitionInstance.onstart = () => {
+        console.log("Speech recognition started...");
+        setIsListening(true);
+        reconnectAttemptsRef.current = 0; // Reset counter on successful start
+      };
+
+      recognitionInstance.onresult = (event) => {
+        const finalSpeech = event.results[event.results.length - 1][0].transcript;
+        console.log("Recognized speech:", finalSpeech);
         
-        // Pause recognition while speaking to prevent feedback loop
-        if (isListening && recognition) {
-          try {
-            console.log("Pausing recognition while speaking");
-            recognition.stop();
-            recognitionActiveRef.current = false;
-          } catch (e) {
-            console.error("Error stopping recognition:", e);
-          }
+        setRecognizedSpeech(finalSpeech);
+      };
+
+      recognitionInstance.onend = () => {
+        console.log("Speech recognition stopped...");
+        setIsListening(false);
+        
+        if (!speaking) {
+          setTimeout(() => {
+            if (!speaking) {
+              try {
+                recognitionInstance.start();
+                console.log("Auto-restarting recognition after end");
+              } catch (error) {
+                console.error("Failed to auto-restart recognition:", error);
+                resetRecognition();
+              }
+            }
+          }, 1000);
         }
       };
-      
-      utterance.onend = () => {
-        console.log("Finished speaking.");
-        isSpeakingRef.current = false;
-        setSpeaking(false);
+
+      recognitionInstance.onerror = (event) => {
+        console.error("Recognition error:", event.error);
         
-        // Resume recognition if it was active
-        if (recognition && isListening) {
-          try {
-            console.log("Resuming recognition after speaking");
-            recognition.start();
-            recognitionActiveRef.current = true;
-          } catch (e) {
-            console.error("Error restarting recognition:", e);
-          }
-        }
-        
-        // Process the next item in queue
-        setTimeout(() => processSpeechQueue(), 300);
-      };
-      
-      utterance.onerror = (event) => {
-        console.error("Speech synthesis error:", event);
-        isSpeakingRef.current = false;
-        setSpeaking(false);
-        
-        // Process the next item even on error
-        setTimeout(() => processSpeechQueue(), 300);
-        
-        // Resume recognition if it was paused due to speaking
-        if (recognition && isListening && !recognitionActiveRef.current) {
-          try {
-            recognition.start();
-            recognitionActiveRef.current = true;
-          } catch (e) {
-            console.error("Error restarting recognition after speech error:", e);
-          }
+        // Handle various error types
+        if (event.error === 'not-allowed') {
+          toast.error("Microphone access denied", { 
+            description: "Please allow microphone access in your browser settings" 
+          });
+        } else if (event.error !== 'aborted') {
+          toast.error("Voice recognition error", { 
+            description: "Please try again or type your question" 
+          });
+          resetRecognition();
         }
       };
-      
-      // Speak the text
-      speechSynthesisRef.current.speak(utterance);
-      
-      // Safari and some mobile browsers may need manual resume
-      if (speechSynthesisRef.current.paused) {
-        speechSynthesisRef.current.resume();
-      }
-    } catch (error) {
-      console.error("Error in speech synthesis:", error);
-      isSpeakingRef.current = false;
-      setSpeaking(false);
-      setTimeout(() => processSpeechQueue(), 300);
-    }
-  };
 
-  // Public speak function that adds to the queue
-  const speak = (text: string) => {
-    if (!text) return;
-    
-    // Check if speech synthesis is available
-    if (!speechSynthesisRef.current) {
-      console.warn("Speech synthesis not available");
-      return;
-    }
-    
-    // Split very long text into smaller chunks for better performance
-    const maxChunkSize = 250; // Characters - reduced for better responsiveness
-    if (text.length > maxChunkSize) {
-      const chunks = splitTextIntoChunks(text, maxChunkSize);
-      console.log(`Split text into ${chunks.length} chunks for speaking`);
-      chunks.forEach(chunk => speechQueueRef.current.push(chunk));
-    } else {
-      speechQueueRef.current.push(text);
-    }
-    
-    // Start processing the queue if not already speaking
-    if (!isSpeakingRef.current) {
-      console.log("Starting speech queue processing");
-      processSpeechQueue();
-    } else {
-      console.log("Already speaking, text added to queue");
-    }
-  };
-
-  // Split text into chunks at sentence boundaries
-  const splitTextIntoChunks = (text: string, maxChunkSize: number): string[] => {
-    // Split at sentence boundaries (periods, exclamation marks, question marks)
-    const sentences = text.split(/([.!?]+)/).filter(Boolean);
-    const chunks: string[] = [];
-    let currentChunk = "";
-    
-    for (let i = 0; i < sentences.length; i += 2) {
-      const sentence = sentences[i] || "";
-      const punctuation = sentences[i + 1] || "";
-      const fullSentence = sentence + punctuation + " ";
+      setRecognition(recognitionInstance);
       
-      if (currentChunk.length + fullSentence.length > maxChunkSize) {
-        chunks.push(currentChunk);
-        currentChunk = fullSentence;
-      } else {
-        currentChunk += fullSentence;
-      }
-    }
-    
-    if (currentChunk.length > 0) {
-      chunks.push(currentChunk);
-    }
-    
-    return chunks;
-  };
-
-  // Stop speaking immediately
-  const stopSpeaking = () => {
-    speechQueueRef.current = []; // Clear the queue
-    if (speechSynthesisRef.current) {
-      speechSynthesisRef.current.cancel();
-    }
-    isSpeakingRef.current = false;
-    setSpeaking(false);
-    console.log("Speech stopped and queue cleared");
-    
-    // Notify user
-    toast.success("Voice stopped", {
-      description: "Speech has been cancelled"
-    });
-    
-    // Resume recognition if it was active but paused due to speaking
-    if (recognition && isListening && !recognitionActiveRef.current) {
       try {
-        recognition.start();
-        recognitionActiveRef.current = true;
-      } catch (e) {
-        console.error("Error restarting recognition after stopping speech:", e);
+        recognitionInstance.start();
+        console.log("Initial recognition start attempt");
+      } catch (error) {
+        console.error("Error during initial recognition start:", error);
+        setTimeout(() => {
+          try {
+            recognitionInstance.start();
+            console.log("Retry recognition start after delay");
+          } catch (retryError) {
+            console.error("Retry recognition start failed:", retryError);
+          }
+        }, 1000);
       }
+    } else {
+      console.warn("Speech Recognition is not supported in this browser.");
+      toast.error("Voice features unavailable", { 
+        description: "Your browser doesn't support speech recognition" 
+      });
     }
-  };
+  }
 
-  // Toggle speech recognition
-  const toggleRecognition = () => {
+  function toggleRecognition(): void {
     if (!recognition) {
       toast.error("Speech recognition not available", {
-        description: "This feature may not be supported in your browser"
+        description: "Your browser may not support this feature"
       });
       return;
     }
     
-    try {
-      if (isListening) {
+    if (isListening) {
+      console.log("Manually stopping recognition...");
+      try {
         recognition.stop();
-        recognitionActiveRef.current = false;
         setIsListening(false);
-        toast.success("Voice input turned off");
-      } else {
-        recognition.start();
-        recognitionActiveRef.current = true;
-        setIsListening(true);
-        toast.success("Voice input turned on", {
-          description: "Speak now to ask questions"
-        });
+        toast.success("Voice recognition paused");
+      } catch (error) {
+        console.error("Error stopping recognition:", error);
       }
-    } catch (error) {
-      console.error("Error toggling recognition:", error);
-      toast.error("Speech recognition error", {
-        description: "There was a problem with the speech recognition service"
-      });
+    } else {
+      console.log("Manually starting recognition...");
+      try {
+        recognition.start();
+        setIsListening(true);
+        toast.success("Voice recognition activated");
+      } catch (error) {
+        console.error("Error starting recognition:", error);
+        
+        if (error instanceof DOMException && error.name === 'InvalidStateError') {
+          setIsListening(true);
+          toast.info("Recognition is already active");
+        } else {
+          resetRecognition();
+        }
+      }
     }
-  };
-
-  // Clean text for better speaking
-  function cleanText(text: string): string {
-    if (!text) return "";
-    
-    return text
-      .replace(/\*\*/g, "") // Remove markdown bold
-      .replace(/\*/g, "")    // Remove markdown italic
-      .replace(/#+\s/g, "")  // Remove markdown headings
-      .replace(/\n\s*\n/g, ". ") // Replace double line breaks with period and space
-      .replace(/\n/g, " ")   // Replace single line breaks with space
-      .replace(/\s{2,}/g, " ") // Replace multiple spaces with a single space
-      .trim();
   }
 
   return {

@@ -1,4 +1,3 @@
-
 import React, { useContext, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { DataContext } from "../context/UserContext.tsx";
@@ -7,127 +6,58 @@ import {
   Search, 
   ZoomIn, 
   ZoomOut, 
+  Download, 
   Copy, 
   BookOpen, 
   ArrowRight,
-  FileDigit,
-  Loader2
+  FileDigit
 } from "lucide-react";
 import { Document, Page, pdfjs } from 'react-pdf';
 import { toast } from "sonner";
-import 'react-pdf/dist/esm/Page/TextLayer.css';
-import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 
 // Initialize PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+const pdfjsWorker = import('pdfjs-dist/build/pdf.worker.entry');
+pdfjs.GlobalWorkerOptions.workerUrl = pdfjsWorker;
 
 const PDFViewer = () => {
   const context = useContext(DataContext);
   
-  // Check for undefined context and show better loading state
+  // Add a check for undefined context
   if (!context) {
-    return (
-      <div className="flex flex-col items-center justify-center h-[600px]">
-        <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
-        <p className="text-lg font-medium">Loading PDF viewer...</p>
-      </div>
-    );
+    return <div className="flex items-center justify-center h-[600px]">
+      <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin mb-4"></div>
+      <p className="ml-3">Loading PDF viewer...</p>
+    </div>;
   }
   
-  const { pdfContent, pdfName, pdfAnalysis, isProcessingPdf, speak, isPdfAnalyzed } = context;
+  const { pdfContent, pdfName, pdfAnalysis } = context;
   
   const [numPages, setNumPages] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
+  const [pdfData, setPdfData] = useState(null);
   const [scale, setScale] = useState(1.0);
   const [searchText, setSearchText] = useState("");
-  const [activeTab, setActiveTab] = useState("analysis"); // Default to analysis
-  const [pdfBlob, setPdfBlob] = useState(null);
-  const [loadError, setLoadError] = useState(false);
-  const [contentView, setContentView] = useState("text"); // "text" or "pdf"
-  const [analysisLoaded, setAnalysisLoaded] = useState(false);
+  const [activeTab, setActiveTab] = useState("preview"); // 'preview' or 'analysis'
+  const [pdfUrl, setPdfUrl] = useState(null);
   
-  // When PDF analysis becomes available, mark it as loaded
+  // Parse the PDF content to display
   useEffect(() => {
-    if (pdfAnalysis && !analysisLoaded && !isProcessingPdf) {
-      setAnalysisLoaded(true);
-      console.log("PDF analysis is now available");
-    }
-  }, [pdfAnalysis, analysisLoaded, isProcessingPdf]);
-  
-  // Speak the analysis when it's first loaded
-  useEffect(() => {
-    if (pdfAnalysis && analysisLoaded && activeTab === "analysis" && speak && !isProcessingPdf) {
-      const timer = setTimeout(() => {
-        // Extract just the first part for speech to avoid overwhelming
-        const analysisIntro = "PDF analysis complete. Here's a summary of your document.";
-        speak(analysisIntro);
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [pdfAnalysis, analysisLoaded, activeTab, speak, isProcessingPdf]);
-  
-  // Create a Blob URL from the PDF content for display
-  useEffect(() => {
-    const createPdfBlob = async () => {
-      if (pdfContent) {
-        try {
-          // For demonstration - in a real app, you'd use the actual PDF file
-          const { jsPDF } = await import('jspdf');
-          const doc = new jsPDF();
-          
-          // Split content into pages (rough approximation)
-          const contentChunks = pdfContent.match(/[\s\S]{1,3000}/g) || [];
-          
-          contentChunks.forEach((chunk, i) => {
-            if (i > 0) doc.addPage();
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(12);
-            
-            // Add text with word wrap
-            const splitText = doc.splitTextToSize(chunk, 180);
-            doc.text(splitText, 15, 20);
-          });
-          
-          const blob = doc.output('blob');
-          const url = URL.createObjectURL(blob);
-          
-          setPdfBlob(url);
-          setLoadError(false);
-        } catch (error) {
-          console.error("Error creating PDF blob:", error);
-          setLoadError(true);
-          // Default to showing text view on error
-          setContentView("text");
-        }
-      } else {
-        setPdfBlob(null);
+    if (pdfContent) {
+      // Attempt to convert text back to PDF for display
+      // Note: This is a simplistic approach, in a real app you'd use the actual PDF file
+      try {
+        const dataUrl = `data:application/pdf;base64,${btoa(unescape(encodeURIComponent(pdfContent)))}`;
+        setPdfUrl(dataUrl);
+      } catch (error) {
+        console.error("Error creating PDF for display:", error);
       }
-    };
-    
-    createPdfBlob();
-    
-    // Cleanup
-    return () => {
-      if (pdfBlob) URL.revokeObjectURL(pdfBlob);
-    };
+    }
   }, [pdfContent]);
   
   // Handle successful PDF load
   const onDocumentLoadSuccess = ({ numPages }) => {
     setNumPages(numPages);
     setPageNumber(1);
-    setLoadError(false);
-    console.log("PDF loaded successfully with", numPages, "pages");
-  };
-  
-  // Handle PDF load error
-  const onDocumentLoadError = (error) => {
-    console.error("Error loading PDF:", error);
-    setLoadError(true);
-    setContentView("text");  // Fall back to text view
-    toast.error("Could not display PDF preview", {
-      description: "Showing text content instead"
-    });
   };
   
   // Change page controls
@@ -144,8 +74,6 @@ const PDFViewer = () => {
   
   // Copy analysis to clipboard
   const copyAnalysis = () => {
-    if (!pdfAnalysis) return;
-    
     navigator.clipboard.writeText(pdfAnalysis)
       .then(() => {
         toast.success("Analysis copied to clipboard");
@@ -210,146 +138,118 @@ const PDFViewer = () => {
           {activeTab === "preview" ? (
             pdfContent ? (
               <div className="flex flex-col h-full">
-                {/* Toggle between PDF and Text view */}
-                <div className="flex justify-center mb-4">
-                  <div className="flex rounded-lg overflow-hidden border border-border">
+                {/* Search and controls */}
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Search in PDF..."
+                      className="pl-9 pr-4 py-2 rounded-md border border-gray-200 w-full sm:w-64"
+                      value={searchText}
+                      onChange={(e) => setSearchText(e.target.value)}
+                    />
+                    <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={() => setContentView("pdf")}
-                      className={`px-4 py-2 text-sm font-medium ${
-                        contentView === "pdf" 
-                          ? "bg-primary text-white" 
-                          : "bg-white/50 hover:bg-white/80"
-                      }`}
+                      onClick={zoomOut}
+                      className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100"
+                      aria-label="Zoom out"
                     >
-                      PDF View
+                      <ZoomOut className="w-4 h-4" />
                     </button>
+                    <span className="text-sm">{Math.round(scale * 100)}%</span>
                     <button
-                      onClick={() => setContentView("text")}
-                      className={`px-4 py-2 text-sm font-medium ${
-                        contentView === "text" 
-                          ? "bg-primary text-white" 
-                          : "bg-white/50 hover:bg-white/80"
-                      }`}
+                      onClick={zoomIn}
+                      className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100"
+                      aria-label="Zoom in"
                     >
-                      Text View
+                      <ZoomIn className="w-4 h-4" />
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        const link = document.createElement('a');
+                        link.href = pdfUrl;
+                        link.download = pdfName || 'document.pdf';
+                        link.click();
+                      }}
+                      className="ml-2 px-3 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 text-sm flex items-center gap-1.5"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Download</span>
                     </button>
                   </div>
                 </div>
-              
-                {contentView === "pdf" ? (
-                  // ... keep existing code (PDF view functionality)
-                  <>
-                    {/* Search and controls */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                      <div className="relative">
-                        <input
-                          type="text"
-                          placeholder="Search in PDF..."
-                          className="pl-9 pr-4 py-2 rounded-md border border-gray-200 w-full sm:w-64"
-                          value={searchText}
-                          onChange={(e) => setSearchText(e.target.value)}
-                        />
-                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-                      </div>
-                      
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={zoomOut}
-                          className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100"
-                          aria-label="Zoom out"
-                        >
-                          <ZoomOut className="w-4 h-4" />
-                        </button>
-                        <span className="text-sm">{Math.round(scale * 100)}%</span>
-                        <button
-                          onClick={zoomIn}
-                          className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100"
-                          aria-label="Zoom in"
-                        >
-                          <ZoomIn className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                    
-                    {/* PDF display */}
-                    <div className="flex-grow overflow-auto bg-white rounded-lg shadow-inner flex justify-center p-4">
-                      <div className="pdf-container max-w-full">
-                        {pdfBlob ? (
-                          <Document
-                            file={pdfBlob}
-                            onLoadSuccess={onDocumentLoadSuccess}
-                            onLoadError={onDocumentLoadError}
-                            loading={
-                              <div className="flex flex-col items-center justify-center h-[600px]">
-                                <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
-                                <p>Loading PDF...</p>
-                              </div>
-                            }
-                            error={
-                              <div className="flex flex-col items-center justify-center h-[600px] text-center p-4">
-                                <FileText className="w-12 h-12 text-red-400 mb-4" />
-                                <h3 className="text-lg font-medium mb-2">Could not display PDF preview</h3>
-                                <p className="text-sm text-muted-foreground mb-4">
-                                  PDF preview is not available for this document, but you can still view the text content.
-                                </p>
-                                <button
-                                  onClick={() => setContentView("text")}
-                                  className="px-4 py-2 bg-primary text-white rounded-md flex items-center gap-2"
-                                >
-                                  <BookOpen className="w-4 h-4" />
-                                  <span>View Text Content</span>
-                                </button>
-                              </div>
-                            }
-                          >
-                            <Page
-                              pageNumber={pageNumber}
-                              scale={scale}
-                              renderTextLayer={true}
-                              renderAnnotationLayer={true}
-                            />
-                          </Document>
-                        ) : (
+                
+                {/* PDF display */}
+                <div className="flex-grow overflow-auto bg-white rounded-lg shadow-inner flex justify-center p-4">
+                  <div className="pdf-container max-w-full">
+                    {pdfUrl ? (
+                      <Document
+                        file={pdfUrl}
+                        onLoadSuccess={onDocumentLoadSuccess}
+                        loading={
                           <div className="flex flex-col items-center justify-center h-[600px]">
-                            <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
-                            <p>Processing PDF content...</p>
+                            <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin mb-4"></div>
+                            <p>Loading PDF...</p>
                           </div>
-                        )}
-                      </div>
-                    </div>
-                    
-                    {/* Page controls */}
-                    {numPages && !loadError && contentView === "pdf" && (
-                      <div className="flex items-center justify-center gap-4 mt-4">
-                        <button
-                          onClick={() => changePage(-1)}
-                          disabled={pageNumber <= 1}
-                          className="px-3 py-1.5 border border-gray-200 rounded-md disabled:opacity-50 text-sm"
-                        >
-                          Previous
-                        </button>
-                        <p className="text-sm">
-                          Page <span className="font-medium">{pageNumber}</span> of{" "}
-                          <span className="font-medium">{numPages}</span>
-                        </p>
-                        <button
-                          onClick={() => changePage(1)}
-                          disabled={pageNumber >= numPages}
-                          className="px-3 py-1.5 border border-gray-200 rounded-md disabled:opacity-50 text-sm"
-                        >
-                          Next
-                        </button>
+                        }
+                        error={
+                          <div className="flex flex-col items-center justify-center h-[600px] text-center p-4">
+                            <FileText className="w-12 h-12 text-red-400 mb-4" />
+                            <h3 className="text-lg font-medium mb-2">Could not display PDF preview</h3>
+                            <p className="text-sm text-muted-foreground mb-4">
+                              PDF preview is not available for this document, but you can still view the analysis.
+                            </p>
+                            <button
+                              onClick={() => setActiveTab("analysis")}
+                              className="px-4 py-2 bg-primary text-white rounded-md flex items-center gap-2"
+                            >
+                              <BookOpen className="w-4 h-4" />
+                              <span>View Analysis</span>
+                            </button>
+                          </div>
+                        }
+                      >
+                        <Page
+                          pageNumber={pageNumber}
+                          scale={scale}
+                          renderTextLayer={true}
+                          renderAnnotationLayer={true}
+                        />
+                      </Document>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-[600px]">
+                        <FileText className="w-12 h-12 text-muted-foreground mb-4" />
+                        <p>PDF content not available for preview</p>
                       </div>
                     )}
-                  </>
-                ) : (
-                  // Text view
-                  <div className="flex-grow overflow-auto bg-white rounded-lg shadow-inner p-4">
-                    <div className="max-h-[600px] overflow-auto w-full p-4 border border-gray-200 rounded-lg bg-gray-50 text-left">
-                      <pre className="whitespace-pre-wrap text-sm">
-                        {pdfContent || "No text content available."}
-                      </pre>
-                    </div>
+                  </div>
+                </div>
+                
+                {/* Page controls */}
+                {numPages && (
+                  <div className="flex items-center justify-center gap-4 mt-4">
+                    <button
+                      onClick={() => changePage(-1)}
+                      disabled={pageNumber <= 1}
+                      className="px-3 py-1.5 border border-gray-200 rounded-md disabled:opacity-50 text-sm"
+                    >
+                      Previous
+                    </button>
+                    <p className="text-sm">
+                      Page <span className="font-medium">{pageNumber}</span> of{" "}
+                      <span className="font-medium">{numPages}</span>
+                    </p>
+                    <button
+                      onClick={() => changePage(1)}
+                      disabled={pageNumber >= numPages}
+                      className="px-3 py-1.5 border border-gray-200 rounded-md disabled:opacity-50 text-sm"
+                    >
+                      Next
+                    </button>
                   </div>
                 )}
               </div>
@@ -363,10 +263,10 @@ const PDFViewer = () => {
               </div>
             )
           ) : (
-            // Analysis tab - Completely rewritten to fix analysis display
-            <div className="glass-card p-5 rounded-lg bg-white/70 relative h-full flex flex-col">
-              <div className="absolute top-3 right-3 flex gap-2">
-                {pdfAnalysis && (
+            // Analysis tab
+            pdfAnalysis ? (
+              <div className="glass-card p-5 rounded-lg bg-white/70 relative">
+                <div className="absolute top-3 right-3 flex gap-2">
                   <button
                     onClick={copyAnalysis}
                     className="p-2 rounded-md hover:bg-gray-100 text-gray-500"
@@ -374,60 +274,14 @@ const PDFViewer = () => {
                   >
                     <Copy className="w-4 h-4" />
                   </button>
-                )}
-              </div>
-              
-              <div className="prose prose-sm max-w-none flex-grow overflow-auto">
-                <h2 className="text-xl font-medium mb-4">PDF Analysis</h2>
+                </div>
                 
-                {isProcessingPdf ? (
-                  <div className="flex items-center gap-3">
-                    <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                    <span>Analyzing PDF content...</span>
-                  </div>
-                ) : pdfContent && !pdfAnalysis ? (
-                  <div className="flex flex-col items-center justify-center py-6 text-center">
-                    <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
-                    <h3 className="text-lg font-medium mb-2">Generating PDF analysis...</h3>
-                    <p className="text-muted-foreground max-w-md">
-                      We're analyzing the content of your PDF document. 
-                      This may take a moment for larger documents.
-                    </p>
-                  </div>
-                ) : pdfAnalysis ? (
-                  <div className="whitespace-pre-line">
-                    {pdfAnalysis.split('##').map((section, index) => {
-                      // Handle the first section which might not start with ##
-                      if (index === 0 && !section.startsWith(' ')) {
-                        return <div key={index} className="mb-4">{section}</div>;
-                      }
-                      
-                      // For sections with ## headers
-                      const lines = section.split('\n');
-                      const heading = lines[0];
-                      const content = lines.slice(1).join('\n');
-                      
-                      return (
-                        <div key={index} className="mb-4">
-                          <h3 className="text-lg font-medium mt-4">{heading}</h3>
-                          <div>{content}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-16 text-center">
-                    <BookOpen className="w-16 h-16 text-muted-foreground mb-4" />
-                    <h3 className="text-xl font-medium mb-2">No Analysis Available</h3>
-                    <p className="text-muted-foreground max-w-md">
-                      Upload a PDF document first to generate its analysis
-                    </p>
-                  </div>
-                )}
-              </div>
-              
-              {/* Call to action */}
-              {pdfContent && !isProcessingPdf && pdfAnalysis && (
+                <div className="prose prose-sm max-w-none">
+                  <h2 className="text-xl font-medium mb-4">PDF Analysis</h2>
+                  <div className="whitespace-pre-line">{pdfAnalysis}</div>
+                </div>
+                
+                {/* Call to action */}
                 <div className="mt-8 p-4 bg-primary/5 rounded-lg border border-primary/10">
                   <h3 className="font-medium text-primary mb-2">What's next?</h3>
                   <p className="text-sm mb-3">
@@ -435,7 +289,7 @@ const PDFViewer = () => {
                   </p>
                   <div className="flex flex-wrap gap-3">
                     <button
-                      onClick={() => document.getElementById('test-tab-link')?.click()}
+                      onClick={() => window.location.hash = "#test"}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary rounded-md text-sm hover:bg-primary/20"
                     >
                       <BookOpen className="w-4 h-4" />
@@ -444,8 +298,16 @@ const PDFViewer = () => {
                     </button>
                   </div>
                 </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16">
+                <BookOpen className="w-16 h-16 text-muted-foreground mb-4" />
+                <h3 className="text-xl font-medium mb-2">No Analysis Available</h3>
+                <p className="text-muted-foreground max-w-md text-center">
+                  Upload a PDF document first to generate its analysis
+                </p>
+              </div>
+            )
           )}
         </div>
       </div>

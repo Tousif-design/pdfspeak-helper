@@ -1,6 +1,6 @@
 
 import React, { useContext, useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { DataContext } from "../context/UserContext";
 import Hero from "../components/Hero";
 import PDFViewer from "../components/PDFViewer";
@@ -17,63 +17,15 @@ import { Loader2 } from "lucide-react";
 const Index = () => {
   const context = useContext(DataContext);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("chat");
-  
-  // Always declare this value at the top level, not conditionally
-  const showPdfNotification = context && 
-    (activeTab === "pdf" || activeTab === "test" || activeTab === "interview") && 
-    !context.pdfContent;
   
   useEffect(() => {
-    // Simulate loading completion with shorter delay
+    // Simulate loading completion
     const timer = setTimeout(() => {
       setLoading(false);
-    }, 800);
+    }, 1000);
     
     return () => clearTimeout(timer);
   }, []);
-  
-  // Handle mock test generation
-  useEffect(() => {
-    if (context && context.mockTest && activeTab === "chat") {
-      setActiveTab("test");
-      toast.success("Mock test generated", {
-        description: "Your personalized test is ready to take"
-      });
-    }
-  }, [context?.mockTest, activeTab]);
-
-  // Handle speech recognition with error handling
-  useEffect(() => {
-    if (context && context.recognizedSpeech) {
-      try {
-        console.log("Speech recognized:", context.recognizedSpeech);
-        const speechEvent = new CustomEvent('speechRecognition', {
-          detail: { transcript: context.recognizedSpeech }
-        });
-        
-        window.dispatchEvent(speechEvent);
-        
-        // Reset the recognized speech after dispatching the event
-        setTimeout(() => {
-          if (context.setRecognizedSpeech) {
-            context.setRecognizedSpeech("");
-          }
-        }, 100);
-      } catch (error) {
-        console.error("Error handling speech recognition:", error);
-      }
-    }
-  }, [context?.recognizedSpeech]);
-  
-  // Add an effect to check if the application is actually rendering
-  useEffect(() => {
-    console.log("Application rendering status:", {
-      contextAvailable: !!context,
-      activeTab,
-      loading
-    });
-  }, [context, activeTab, loading]);
   
   if (loading) {
     return (
@@ -107,43 +59,70 @@ const Index = () => {
     );
   }
   
-  const { pdfContent, mockTest } = context;
+  const { 
+    pdfContent, 
+    mockTest,
+    recognizedSpeech
+  } = context;
+  
+  const [activeTab, setActiveTab] = React.useState("chat");
+  
+  const showPdfNotification = (activeTab === "pdf" || activeTab === "test" || activeTab === "interview") && !pdfContent;
+
+  // Switch to test tab when a mock test is generated
+  useEffect(() => {
+    if (mockTest && activeTab === "chat") {
+      setActiveTab("test");
+      toast.success("Mock test generated", {
+        description: "Your personalized test is ready to take"
+      });
+    }
+  }, [mockTest, activeTab]);
+
+  // Handle speech recognition events
+  useEffect(() => {
+    if (recognizedSpeech) {
+      const speechEvent = new CustomEvent('speechRecognition', {
+        detail: { transcript: recognizedSpeech }
+      });
+      
+      window.dispatchEvent(speechEvent);
+    }
+  }, [recognizedSpeech]);
 
   return (
-    <main className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-slate-100 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-blue-950">
-      <div className="absolute inset-0 bg-[url('/grid-pattern.svg')] opacity-5 z-0 pointer-events-none"></div>
-      
+    <main className="min-h-screen flex flex-col bg-gradient-to-b from-background via-background to-secondary/20">
       <Hero />
       
-      <div className="container px-4 py-8 flex-1 flex flex-col relative z-10">
+      <div className="container px-4 py-8 flex-1 flex flex-col">
         <TabNavigation 
           activeTab={activeTab} 
           setActiveTab={setActiveTab} 
           pdfContent={pdfContent} 
         />
         
-        {showPdfNotification && (
-          <PdfNotification 
-            showPdfNotification={showPdfNotification} 
-            setActiveTab={setActiveTab}
-          />
-        )}
+        <PdfNotification 
+          showPdfNotification={showPdfNotification} 
+          setActiveTab={setActiveTab}
+        />
         
         <div className="flex-1 flex flex-col">
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.3 }}
-            className="mb-20 flex-1"
-          >
-            {activeTab === "chat" && <ChatSection setActiveTab={setActiveTab} />}
-            {activeTab === "pdf" && <PDFViewer />}
-            {activeTab === "test" && <MockTestGenerator />}
-            {activeTab === "interview" && <InterviewSimulator />}
-            {activeTab === "study" && <StudyTools />}
-          </motion.div>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3 }}
+              className="mb-20 flex-1"
+            >
+              {activeTab === "chat" && <ChatSection setActiveTab={setActiveTab} />}
+              {activeTab === "pdf" && <PDFViewer />}
+              {activeTab === "test" && <MockTestGenerator />}
+              {activeTab === "interview" && <InterviewSimulator />}
+              {activeTab === "study" && <StudyTools />}
+            </motion.div>
+          </AnimatePresence>
         </div>
         
         {activeTab === "chat" && <ChatInput />}
